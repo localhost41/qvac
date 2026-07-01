@@ -219,8 +219,10 @@ jobs:
       native_changed: ${{ steps.detect.outputs.native_changed }}
       native_hash: ${{ steps.detect.outputs.native_hash }}
     steps:
-      - name: Checkout base branch
+      - name: Checkout composite source (default branch)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
       - name: Detect native file changes
         id: detect
         uses: ./.github/actions/detect-native-changes
