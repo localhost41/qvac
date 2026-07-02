@@ -128,9 +128,11 @@ jobs:
           workdir: packages/vla-ggml
 
   cpp-lint:
-    # Only runs when we have a PR base SHA to diff against. Workflow_dispatch
-    # has no pull_request context, which would make the diff target empty.
-    if: always() && !cancelled() && needs.ci-router.outputs.run_verified_checks == 'true' && needs.label-gate.outputs.authorised == 'true' && needs.authorize.outputs.allowed == 'true' && github.event_name == 'pull_request_target'
+    # Runs on PRs (base SHA diff target) and on manual workflow_dispatch, where
+    # cpp-lint.yaml's Resolve refs falls back to HEAD~1 for the format/tidy diff
+    # base. Manual dispatch pointing at a branch lets us validate workflow
+    # changes (e.g. the hip-backend ROCm setup) before they land on the base.
+    if: always() && !cancelled() && needs.ci-router.outputs.run_verified_checks == 'true' && needs.label-gate.outputs.authorised == 'true' && needs.authorize.outputs.allowed == 'true' && (github.event_name == 'pull_request_target' || github.event_name == 'workflow_dispatch')
     needs: [authorize, ci-router, label-gate]
     uses: ./.github/workflows/cpp-lint.yaml
     secrets: inherit
@@ -138,6 +140,9 @@ jobs:
       sha: ${{ github.event.pull_request.base.sha }}
       pr_head_sha: ${{ github.event.pull_request.head.sha }}
       workdir: packages/vla-ggml
+      # vla pulls qvac-fabric[hip-backend]; ggml-config find_dependency(hip)
+      # needs ROCm on the lint runner at configure time.
+      include-rocm-sdk: true
 
   cpp-tests:
     permissions:
