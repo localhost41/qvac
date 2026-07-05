@@ -14,8 +14,10 @@ const ImgStableDiffusion = require('../index')
 //   - 'integrated': integrated GPU
 //   - 'dedicated': discrete GPU with the most VRAM
 //
-// Omit it to keep the backend default. No-op (default selection) when there is
-// no matching device.
+// Omit it to keep the backend default (the first enumerated device). If an
+// explicit request can't be satisfied (e.g. 'integrated' with no integrated
+// GPU, 'dedicated' with no discrete GPU, or an out-of-range index), the addon
+// falls back to CPU instead of substituting a different GPU.
 
 const MODELS_DIR = path.resolve(__dirname, '../models')
 const OUTPUT_DIR = path.resolve(__dirname, '../output')

@@ -99,9 +99,12 @@ export interface SdConfig {
   /**
    * GPU to pin when `device` is 'gpu': a GPU-device index, `'integrated'`, or
    * `'dedicated'` (the discrete GPU with the most VRAM). Omit to let the
-   * backend choose. Resolved against the addon's own ggml device enumeration,
-   * so it cannot desync from the device list the backend actually uses. No-op
-   * when no matching GPU exists.
+   * backend choose (the first enumerated device). Resolved against the addon's
+   * own ggml device enumeration, so it cannot desync from the device list the
+   * backend actually uses. If an explicit request cannot be satisfied (e.g.
+   * `'integrated'` on a host with no integrated GPU, `'dedicated'` with no
+   * discrete GPU, or an out-of-range index) the addon falls back to CPU rather
+   * than substituting a different GPU.
    */
   'main-gpu'?: number | 'integrated' | 'dedicated'
   /** Weight quantization type */

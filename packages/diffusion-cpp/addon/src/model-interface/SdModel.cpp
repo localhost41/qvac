@@ -235,6 +235,18 @@ void SdModel::load() {
       QLOG_IF(
           qvac_lib_inference_addon_cpp::logger::Priority::INFO,
           "main-gpu pinning stable-diffusion backend '" + mainGpuBackend + "'");
+    } else {
+      // An explicit main-gpu request (e.g. 'integrated' on a host with no
+      // integrated GPU, 'dedicated' with no discrete GPU, or an out-of-range
+      // index) could not be satisfied. Fall back to CPU instead of silently
+      // using the first enumerated GPU, so the requested device class is never
+      // substituted by a different device. (An unset main-gpu keeps the
+      // backend default, i.e. the first enumerated device.)
+      params.preferred_gpu_backend = SD_BACKEND_PREF_CPU;
+      QLOG_IF(
+          qvac_lib_inference_addon_cpp::logger::Priority::INFO,
+          "main-gpu '" + config_.mainGpu +
+              "' not available; falling back to CPU");
     }
   } else if (!config_.mainGpu.empty()) {
     QLOG_IF(
