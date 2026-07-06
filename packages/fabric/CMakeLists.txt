@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
 option(ANDROID_STL "Android STL linkage" c++_shared)
-option(MOBILE_DYNAMIC_LINK "Use dynamic linking for the fabric runtime on mobile" ON)
 
 option(VK_PROFILING "Force vk performance logging in qvac-fabric" OFF)
 if(VK_PROFILING)
@@ -230,39 +229,6 @@ install(DIRECTORY ${VCPKG_INSTALLED_PATH}/include/ DESTINATION include
   PATTERN "lint-cpp" EXCLUDE
   PATTERN "gtest" EXCLUDE
   PATTERN "gmock" EXCLUDE)
-
-# Mobile: also install static libs and cmake configs for static linking.
-if(ANDROID OR (APPLE AND CMAKE_SYSTEM_NAME STREQUAL "iOS"))
-  install(DIRECTORY ${VCPKG_INSTALLED_PATH}/lib/ DESTINATION lib
-    FILES_MATCHING PATTERN "*.a" PATTERN "*.lib"
-    PATTERN "pkgconfig" EXCLUDE)
-
-  install(CODE [=[
-    if(NOT WIN32)
-      find_program(_strip strip)
-      if(_strip)
-        file(GLOB _libs "${CMAKE_INSTALL_PREFIX}/lib/*.a")
-        foreach(_lib IN LISTS _libs)
-          if(APPLE)
-            execute_process(COMMAND "${_strip}" -x "${_lib}" ERROR_QUIET)
-          else()
-            execute_process(COMMAND "${_strip}" --strip-unneeded "${_lib}" ERROR_QUIET)
-          endif()
-        endforeach()
-      endif()
-    endif()
-  ]=])
-
-  install(DIRECTORY ${VCPKG_INSTALLED_PATH}/share/ DESTINATION share
-    PATTERN "lint-cpp" EXCLUDE
-    PATTERN "gtest" EXCLUDE
-    PATTERN "pkgconfig" EXCLUDE
-    PATTERN "vcpkg-cmake" EXCLUDE
-    PATTERN "vcpkg-cmake-config" EXCLUDE
-    PATTERN "vcpkg.spdx.json" EXCLUDE
-    PATTERN "vcpkg_abi_info.txt" EXCLUDE
-    PATTERN "copyright" EXCLUDE)
-endif()
 
 # --- qvac-fabric cmake package config ----------------------------------------
 install(TARGETS qvac-fabric-headers EXPORT qvac-fabricTargets)

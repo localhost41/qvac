@@ -22,6 +22,11 @@ const arch = os.arch()
 const useCpu = (platform === 'darwin' && arch === 'x64') || (platform === 'linux' && arch === 'arm64')
 const device = useCpu ? 'cpu' : 'gpu'
 
+// The LLM tests can't run on darwin-x64 (no GPU backend, and CPU completion is
+// too slow for CI), so they're skipped there — and we must not prefetch that
+// ~770MB model when it will never be used.
+const llmSkip = useCpu && platform === 'darwin'
+
 const TIMEOUT = 15 * 60 * 1000
 
 const LLM_MODEL = {
@@ -34,6 +39,23 @@ const EMBED_MODEL = {
   url: 'https://huggingface.co/unsloth/embeddinggemma-300m-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf',
   dimension: 768
 }
+
+// brittle runs tests serially, so calling ensureModel() inside each test body
+// downloads the models back-to-back (~955MB serialized on a cold worker).
+// Memoize per model and kick the needed downloads off in parallel up front so
+// the cold-cache path overlaps both transfers; warm caches are unaffected.
+const modelDownloads = new Map()
+function ensureModelOnce (model) {
+  if (!modelDownloads.has(model)) modelDownloads.set(model, ensureModel(model))
+  return modelDownloads.get(model)
+}
+
+const prefetchModels = [EMBED_MODEL]
+if (!llmSkip) prefetchModels.unshift(LLM_MODEL)
+// Start the transfers now; tests await the memoized per-model promises below.
+// Attach a noop catch so an early failure isn't flagged as an unhandled
+// rejection before a test gets a chance to await (and surface) it.
+Promise.all(prefetchModels.map(ensureModelOnce)).catch(() => {})
 
 const PROMPT = [
   { role: 'system', content: 'You are a helpful, respectful and honest assistant.' },
@@ -101,8 +123,8 @@ function fabricMappings () {
   return found
 }
 
-test('llm-llamacpp runs inference through @qvac/fabric', { timeout: TIMEOUT, skip: useCpu && platform === 'darwin' }, async t => {
-  const modelPath = await ensureModel(LLM_MODEL)
+test('llm-llamacpp runs inference through @qvac/fabric', { timeout: TIMEOUT, skip: llmSkip }, async t => {
+  const modelPath = await ensureModelOnce(LLM_MODEL)
   const { addon, output } = await runCompletion(modelPath)
   try {
     t.ok(output.length > 0, 'completion produced non-empty output')
@@ -112,7 +134,7 @@ test('llm-llamacpp runs inference through @qvac/fabric', { timeout: TIMEOUT, ski
 })
 
 test('embed-llamacpp runs inference through @qvac/fabric', { timeout: TIMEOUT }, async t => {
-  const modelPath = await ensureModel(EMBED_MODEL)
+  const modelPath = await ensureModelOnce(EMBED_MODEL)
   const { addon, embeddings } = await runEmbedding(modelPath)
   try {
     t.is(embeddings[0][0].length, EMBED_MODEL.dimension, 'embedding has the expected dimension')
@@ -121,9 +143,11 @@ test('embed-llamacpp runs inference through @qvac/fabric', { timeout: TIMEOUT },
   }
 })
 
-test('llm + embed share a single @qvac/fabric runtime in one process', { timeout: TIMEOUT, skip: useCpu && platform === 'darwin' }, async t => {
-  const llmModelPath = await ensureModel(LLM_MODEL)
-  const embedModelPath = await ensureModel(EMBED_MODEL)
+test('llm + embed share a single @qvac/fabric runtime in one process', { timeout: TIMEOUT, skip: llmSkip }, async t => {
+  const [llmModelPath, embedModelPath] = await Promise.all([
+    ensureModelOnce(LLM_MODEL),
+    ensureModelOnce(EMBED_MODEL)
+  ])
 
   const llm = await runCompletion(llmModelPath)
   t.ok(llm.output.length > 0, 'llm completion ran')

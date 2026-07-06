@@ -14,22 +14,17 @@ pattern. See [INTEGRATION.md](./INTEGRATION.md) for the consumer guide.
 ## What it ships
 
 - **Prebuilt `.bare` shared library** (`prebuilds/<platform>/qvac__fabric.bare`)
-  — contains `libllama`, `libcommon`, `libmtmd`, `libggml-base` and (on desktop)
-  the static ggml compute backends. It exports the full
+  — contains `libllama`, `libcommon`, `libmtmd`, and `libggml-base`. It exports the full
   `llama_* / LLAMA_* / ggml_* / gguf_* / mtmd_*` C API plus the `common_*` and
   `json_schema_to_grammar` C++ symbols.
 - **C++ headers** (`prebuilds/include/`) — `ggml*.h`, `gguf.h` at the root and
   `llama.h`, `llama-cpp.h`, `common/*.h`, `mtmd/*.h` under `include/llama/`.
 - **CMake config** (`prebuilds/share/qvac-fabric/`) — `find_package(qvac-fabric)`
-  exposes:
-  - `qvac-fabric::headers` — compile-time headers (always available)
-  - `qvac-fabric::qvac-fabric-static` — static llama/ggml linking (mobile builds
-    only, when `prebuilds/share/llama/` exists)
-- **ggml compute backends** — on platforms where ggml builds backends as
-  separate shared libraries (e.g. Android), they ship under
-  `prebuilds/<platform>/qvac__fabric/` and are loaded at runtime via
-  `ggml_backend_load_all_from_path()`. On desktop the backends are static inside
-  `qvac__fabric.bare` and self-register on load.
+  exposes `qvac-fabric::headers` for compile-time includes
+- **ggml compute backends** — on **Linux and Android**, separate shared libraries
+  ship under `prebuilds/<platform>/qvac__fabric/` and are loaded at runtime via
+  `ggml_backend_load_all_from_path()`. On **macOS, Windows, and iOS** the backends
+  are linked statically inside `qvac__fabric.bare` and self-register on load.
 
 ## Architecture
 
@@ -43,7 +38,7 @@ pattern. See [INTEGRATION.md](./INTEGRATION.md) for the consumer guide.
 ┌───────────────────────────▼────────────────────────────────┐
 │  qvac__fabric@0.bare  (this package)                        │
 │  libllama · libcommon · libmtmd · libggml-base              │
-│  + static ggml backends (desktop)                           │
+│  + ggml backends (.so on Linux/Android; static elsewhere)   │
 │  exports llama_* / LLAMA_* / ggml_* / gguf_* / mtmd_* /     │
 │          common_* / json_schema_to_grammar                  │
 └───────────────────────────┬────────────────────────────────┘
@@ -77,7 +72,7 @@ npm run build   # bare-make generate && bare-make build && bare-make install
 
 | Platform | Triplet | Backends |
 |----------|---------|----------|
-| Linux | `x64-linux`, `arm64-linux` | static (CPU, Vulkan) inside `.bare` |
+| Linux | `x64-linux`, `arm64-linux` | shared `.so` under `prebuilds/<platform>/qvac__fabric/` |
 | macOS | `arm64-osx` | static (CPU, Metal) inside `.bare` |
 | Windows | (default MSVC) | static inside `.bare` |
 | Android | `arm64-android` | shared `.so` under `prebuilds/<platform>/qvac__fabric/` |
