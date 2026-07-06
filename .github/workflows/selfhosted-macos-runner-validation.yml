@@ -260,22 +260,47 @@ jobs:
           path: ${{ runner.temp }}/cacheprobe
           key: macos-runner-selftest-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Restore cache probe again (must hit)
+      # The local cache server is GCS-backed: an entry is NOT guaranteed to be restorable
+      # in the same instant it is saved (a restore 140ms after save missed). Real workflows
+      # restore in a *later* run, so we wait for the entry to become queryable, then still
+      # hard-assert a genuine restore-from-server hit (two attempts, ~45s total window).
+      - name: Wait for cache propagation
+        shell: bash
+        run: sleep 20
+
+      - name: Restore cache probe again (attempt 1, must hit)
         id: cache_verify
         uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # 5.0.4
         with:
           path: ${{ runner.temp }}/cacheprobe-verify
           key: macos-runner-selftest-${{ github.run_id }}-${{ github.run_attempt }}
 
+      - name: Wait longer if first attempt missed
+        if: steps.cache_verify.outputs.cache-hit != 'true'
+        shell: bash
+        run: sleep 25
+
+      - name: Restore cache probe again (attempt 2)
+        id: cache_verify2
+        if: steps.cache_verify.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # 5.0.4
+        with:
+          path: ${{ runner.temp }}/cacheprobe-verify2
+          key: macos-runner-selftest-${{ github.run_id }}-${{ github.run_attempt }}
+
       - name: Assert cache round-trip
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ steps.cache_verify.outputs.cache-hit }}" != "true" ]; then
-            echo "::error::cache round-trip failed — save/restore via the local cache server (CUSTOM_ACTIONS_RESULTS_URL=$CUSTOM_ACTIONS_RESULTS_URL) did not hit"
+          if [ "${{ steps.cache_verify.outputs.cache-hit }}" = "true" ]; then
+            dir="$RUNNER_TEMP/cacheprobe-verify"
+          elif [ "${{ steps.cache_verify2.outputs.cache-hit }}" = "true" ]; then
+            dir="$RUNNER_TEMP/cacheprobe-verify2"
+          else
+            echo "::error::cache round-trip failed — save succeeded but restore did not hit within ~45s (CUSTOM_ACTIONS_RESULTS_URL=$CUSTOM_ACTIONS_RESULTS_URL)"
             exit 1
           fi
-          test -f "$RUNNER_TEMP/cacheprobe-verify/stamp.txt" || { echo "::error::restored cache missing payload"; exit 1; }
+          test -f "$dir/stamp.txt" || { echo "::error::restored cache missing payload"; exit 1; }
           echo "OK: actions/cache save+restore round-trip via local cache server."
 
       - name: Summary
