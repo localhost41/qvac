@@ -1,0 +1,292 @@
+# Self-hosted macOS runner validation (acceptance gate)
+#
+# Exercises EVERY capability a qvac macOS job relies on, on the self-hosted
+# Apple-Silicon Studios (label `qvac-macos26-arm64-gpu`), so we can prove a newly
+# provisioned runner is production-ready BEFORE scaling the per-host runner count.
+#
+# Covers the macOS use cases in this repo:
+#   - de-sudo posture (runner user must be non-admin, no passwordless sudo)
+#   - runner .env wiring (cache server URL, tool cache, vcpkg, DEVELOPER_DIR)
+#   - Xcode 26 + Apple Clang + iOS/macOS SDKs (test-ios-sdk.yml, build-mobile-app)
+#   - pinned toolchain present WITHOUT job-time `brew install` (de-sudo requirement)
+#   - node 20 + bare/brittle globals
+#   - cmake + ninja + Apple Clang native build (cpp-tests-*, benchmarks)
+#   - Metal GPU compute headless under the LaunchDaemon (ggml Metal backend)
+#   - vcpkg (header-only install round-trip)
+#   - ephemeral-keychain code-signing toolchain (no persistent certs)
+#   - actions/cache round-trip through the local cache server (CUSTOM_ACTIONS_RESULTS_URL)
+#
+# Single job on purpose: the canary host runs one runner, so a matrix would
+# deadlock waiting for a second. Runs on PR (self-validating) + on demand.
+
+name: Self-hosted macOS runner validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_vcpkg:
+        description: "Run the vcpkg header-only install check (slower)"
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - ".github/workflows/selfhosted-macos-runner-validation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-runner-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: "validate qvac-macos26-arm64-gpu"
+    # Fork PRs must never land on self-hosted runners (public repo). workflow_dispatch
+    # is maintainer-only; pull_request only runs for same-repo branches.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [qvac-macos26-arm64-gpu]
+    timeout-minutes: 45
+    env:
+      RUN_VCPKG: ${{ github.event.inputs.run_vcpkg || 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
+
+      - name: Host identity + de-sudo guardrail
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "## Runner validation: $RUNNER_NAME" >> "$GITHUB_STEP_SUMMARY"
+          echo "user=$(whoami) uid=$(id -u) host=$(hostname) macOS=$(sw_vers -productVersion) arch=$(uname -m)"
+          [ "$(uname -m)" = "arm64" ] || { echo "::error::not arm64"; exit 1; }
+          # de-sudo: the runner user must NOT be an admin and must NOT have passwordless sudo
+          if id -Gn | tr ' ' '\n' | grep -qx admin; then
+            echo "::error::runner user is in the admin group (de-sudo violated)"; exit 1
+          fi
+          if sudo -n true 2>/dev/null; then
+            echo "::error::runner user has passwordless sudo (de-sudo violated)"; exit 1
+          fi
+          echo "OK: non-admin, no passwordless sudo."
+
+      - name: Runner env wiring (.env)
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          check() { if [ -z "${2:-}" ]; then echo "::error::$1 is not set"; fail=1; else echo "$1=$2"; fi; }
+          check CUSTOM_ACTIONS_RESULTS_URL "${CUSTOM_ACTIONS_RESULTS_URL:-}"
+          check RUNNER_TOOL_CACHE "${RUNNER_TOOL_CACHE:-}"
+          check VCPKG_ROOT "${VCPKG_ROOT:-}"
+          check DEVELOPER_DIR "${DEVELOPER_DIR:-}"
+          check ImageOS "${ImageOS:-}"
+          echo "DISABLE_RUNNER_UPDATE=${DISABLE_RUNNER_UPDATE:-}"
+          [ "$fail" = 0 ] || exit 1
+          echo "OK: runner .env wiring present."
+
+      - name: Xcode 26 + Apple Clang + SDKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "DEVELOPER_DIR=${DEVELOPER_DIR:-}"
+          xcode-select -p
+          xcodebuild -version
+          xcodebuild -version | grep -qE "Xcode 26" || { echo "::error::Xcode is not 26.x (macOS 26 needs Xcode 26)"; exit 1; }
+          echo "-- iOS SDK --"; xcodebuild -showsdks | grep -i "iphoneos" || { echo "::error::no iOS SDK"; exit 1; }
+          echo "-- macOS SDK --"; xcodebuild -showsdks | grep -i "macosx" || { echo "::error::no macOS SDK"; exit 1; }
+          # Apple Clang (not Homebrew) — required for Metal/CoreML/UIKit linking
+          CLANGXX="$(xcrun --find clang++)"
+          echo "clang++=$CLANGXX"; xcrun clang++ --version | head -1
+          case "$CLANGXX" in
+            /opt/homebrew/*) echo "::error::clang++ resolves to Homebrew LLVM, expected Apple Clang"; exit 1 ;;
+          esac
+          echo "OK: Xcode 26 + Apple Clang + iOS/macOS SDKs."
+
+      - name: Toolchain present (no job-time brew install)
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          for t in cmake ninja node npm npx cargo rustc git git-lfs jq yq zstd ccache pkg-config pod ffmpeg python3 brew; do
+            if command -v "$t" >/dev/null 2>&1; then
+              printf "  %-12s %s\n" "$t" "$(command -v "$t")"
+            else
+              echo "::error::missing tool: $t"; fail=1
+            fi
+          done
+          [ "$fail" = 0 ] || exit 1
+          # node must be the pinned 20.x (Linux parity)
+          nv="$(node --version)"; echo "node $nv"
+          case "$nv" in v20.*) : ;; *) echo "::error::node is $nv, expected v20.x"; exit 1 ;; esac
+          echo "OK: full toolchain present; node pinned to 20.x."
+
+      - name: node bare/brittle globals
+        shell: bash
+        run: |
+          set -euo pipefail
+          for g in bare bare-make brittle; do
+            command -v "$g" >/dev/null 2>&1 || npm ls -g --depth=0 "$g" >/dev/null 2>&1 \
+              || { echo "::error::npm global missing: $g"; exit 1; }
+            echo "  $g ok"
+          done
+          echo "OK: bare tooling present."
+
+      - name: Native build (cmake + ninja + Apple Clang)
+        shell: bash
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/nativebuild"; rm -rf "$d"; mkdir -p "$d/src"
+          cat > "$d/src/main.cpp" <<'CPP'
+          #include <cstdio>
+          int main(){ std::puts("qvac-native-ok"); return 0; }
+          CPP
+          cat > "$d/src/CMakeLists.txt" <<'CMAKE'
+          cmake_minimum_required(VERSION 3.20)
+          project(qvac_native CXX)
+          set(CMAKE_CXX_STANDARD 17)
+          add_executable(qvac_native main.cpp)
+          CMAKE
+          cmake -S "$d/src" -B "$d/build" -G Ninja \
+            -DCMAKE_C_COMPILER="$(xcrun --find clang)" \
+            -DCMAKE_CXX_COMPILER="$(xcrun --find clang++)"
+          cmake --build "$d/build"
+          out="$("$d/build/qvac_native")"
+          echo "binary output: $out"
+          [ "$out" = "qvac-native-ok" ] || { echo "::error::native build/run mismatch"; exit 1; }
+          echo "NATIVE_BIN=$d/build/qvac_native" >> "$GITHUB_ENV"
+          echo "OK: cmake + ninja + Apple Clang build/run."
+
+      - name: Metal GPU compute (headless)
+        shell: bash
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/metal"; rm -rf "$d"; mkdir -p "$d"
+          cat > "$d/metaltest.swift" <<'SWIFT'
+          import Metal
+          let n = 4096
+          let src = """
+          #include <metal_stdlib>
+          using namespace metal;
+          kernel void vadd(device const float* a [[buffer(0)]],
+                           device const float* b [[buffer(1)]],
+                           device float* c [[buffer(2)]],
+                           uint i [[thread_position_in_grid]]) { c[i] = a[i] + b[i]; }
+          """
+          guard let dev = MTLCreateSystemDefaultDevice() else {
+            FileHandle.standardError.write("METAL-NIL: no GPU device (headless failure)\n".data(using: .utf8)!); exit(2)
+          }
+          let lib = try dev.makeLibrary(source: src, options: nil)
+          let fn = lib.makeFunction(name: "vadd")!
+          let pso = try dev.makeComputePipelineState(function: fn)
+          let q = dev.makeCommandQueue()!
+          var a = [Float](repeating: 0, count: n), b = [Float](repeating: 0, count: n)
+          for i in 0..<n { a[i] = Float(i); b[i] = Float(2*i) }
+          let ba = dev.makeBuffer(bytes: a, length: n*4, options: .storageModeShared)!
+          let bb = dev.makeBuffer(bytes: b, length: n*4, options: .storageModeShared)!
+          let bc = dev.makeBuffer(length: n*4, options: .storageModeShared)!
+          let cb = q.makeCommandBuffer()!, enc = cb.makeComputeCommandEncoder()!
+          enc.setComputePipelineState(pso)
+          enc.setBuffer(ba, offset: 0, index: 0); enc.setBuffer(bb, offset: 0, index: 1); enc.setBuffer(bc, offset: 0, index: 2)
+          enc.dispatchThreads(MTLSize(width: n, height: 1, depth: 1),
+                              threadsPerThreadgroup: MTLSize(width: min(pso.maxTotalThreadsPerThreadgroup, 256), height: 1, depth: 1))
+          enc.endEncoding(); cb.commit(); cb.waitUntilCompleted()
+          let c = bc.contents().bindMemory(to: Float.self, capacity: n)
+          for i in 0..<n where c[i] != Float(3*i) {
+            FileHandle.standardError.write("METAL-COMPUTE-MISMATCH at \(i)\n".data(using: .utf8)!); exit(3)
+          }
+          print("METAL-COMPUTE-OK device=\(dev.name) n=\(n)")
+          SWIFT
+          xcrun swiftc "$d/metaltest.swift" -o "$d/metaltest"
+          "$d/metaltest"
+          echo "OK: Metal GPU compute verified headless."
+
+      - name: vcpkg (header-only install round-trip)
+        if: ${{ env.RUN_VCPKG == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -x "$VCPKG_ROOT/vcpkg" ] || { echo "::error::vcpkg not found at VCPKG_ROOT=$VCPKG_ROOT"; exit 1; }
+          "$VCPKG_ROOT/vcpkg" version
+          "$VCPKG_ROOT/vcpkg" install nlohmann-json --x-install-root="$RUNNER_TEMP/vcpkg_installed"
+          test -e "$RUNNER_TEMP/vcpkg_installed"/*/include/nlohmann/json.hpp
+          echo "OK: vcpkg install (nlohmann-json header-only) succeeded."
+
+      - name: Code-signing toolchain (ephemeral keychain, ad-hoc)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for t in codesign security; do command -v "$t" >/dev/null || { echo "::error::missing $t"; exit 1; }; done
+          xcrun notarytool --help >/dev/null || { echo "::error::notarytool unavailable"; exit 1; }
+          KC="$RUNNER_TEMP/selftest.keychain-db"; PW="selftest-$RANDOM"
+          security create-keychain -p "$PW" "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p "$PW" "$KC"
+          # Ad-hoc sign (no cert) a real binary — proves codesign works headless under the daemon
+          bin="${NATIVE_BIN:-$RUNNER_TEMP/metal/metaltest}"
+          codesign --force --sign - --timestamp=none "$bin"
+          codesign --verify --verbose "$bin"
+          security delete-keychain "$KC" || true
+          echo "OK: ephemeral keychain + ad-hoc codesign + notarytool present."
+
+      - name: Restore cache probe (local cache server)
+        id: cache_restore
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # 5.0.4
+        with:
+          path: ${{ runner.temp }}/cacheprobe
+          key: macos-runner-selftest-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Create + save cache probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cacheprobe"
+          date +%s > "$RUNNER_TEMP/cacheprobe/stamp.txt"
+          echo "cache restore hit on first pass: ${{ steps.cache_restore.outputs.cache-hit }}"
+
+      - name: Save cache probe
+        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # 5.0.4
+        with:
+          path: ${{ runner.temp }}/cacheprobe
+          key: macos-runner-selftest-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Restore cache probe again (must hit)
+        id: cache_verify
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # 5.0.4
+        with:
+          path: ${{ runner.temp }}/cacheprobe-verify
+          key: macos-runner-selftest-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Assert cache round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.cache_verify.outputs.cache-hit }}" != "true" ]; then
+            echo "::error::cache round-trip failed — save/restore via the local cache server (CUSTOM_ACTIONS_RESULTS_URL=$CUSTOM_ACTIONS_RESULTS_URL) did not hit"
+            exit 1
+          fi
+          test -f "$RUNNER_TEMP/cacheprobe-verify/stamp.txt" || { echo "::error::restored cache missing payload"; exit 1; }
+          echo "OK: actions/cache save+restore round-trip via local cache server."
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo ""
+            echo "| check | result |"
+            echo "| --- | --- |"
+            echo "| de-sudo (non-admin, no NOPASSWD) | ${{ job.status }} |"
+            echo "| runner .env wiring | ${{ job.status }} |"
+            echo "| Xcode 26 + Apple Clang + SDKs | ${{ job.status }} |"
+            echo "| toolchain present (no brew install) | ${{ job.status }} |"
+            echo "| node 20 + bare globals | ${{ job.status }} |"
+            echo "| cmake + ninja native build | ${{ job.status }} |"
+            echo "| Metal GPU compute (headless) | ${{ job.status }} |"
+            echo "| vcpkg install | ${{ job.status }} |"
+            echo "| code-signing toolchain | ${{ job.status }} |"
+            echo "| cache round-trip (local server) | ${{ job.status }} |"
+            echo ""
+            echo "Runner: \`$RUNNER_NAME\` — overall **${{ job.status }}**."
+          } >> "$GITHUB_STEP_SUMMARY"
