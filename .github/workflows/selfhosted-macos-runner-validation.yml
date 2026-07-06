@@ -63,7 +63,8 @@ jobs:
           echo "user=$(whoami) uid=$(id -u) host=$(hostname) macOS=$(sw_vers -productVersion) arch=$(uname -m)"
           [ "$(uname -m)" = "arm64" ] || { echo "::error::not arm64"; exit 1; }
           # de-sudo: the runner user must NOT be an admin and must NOT have passwordless sudo
-          if id -Gn | tr ' ' '\n' | grep -qx admin; then
+          groups=" $(id -Gn) "
+          if [[ "$groups" == *" admin "* ]]; then
             echo "::error::runner user is in the admin group (de-sudo violated)"; exit 1
           fi
           if sudo -n true 2>/dev/null; then
@@ -92,13 +93,21 @@ jobs:
           set -euo pipefail
           echo "DEVELOPER_DIR=${DEVELOPER_DIR:-}"
           xcode-select -p
-          xcodebuild -version
-          xcodebuild -version | grep -qE "Xcode 26" || { echo "::error::Xcode is not 26.x (macOS 26 needs Xcode 26)"; exit 1; }
-          echo "-- iOS SDK --"; xcodebuild -showsdks | grep -i "iphoneos" || { echo "::error::no iOS SDK"; exit 1; }
-          echo "-- macOS SDK --"; xcodebuild -showsdks | grep -i "macosx" || { echo "::error::no macOS SDK"; exit 1; }
+          # NB: capture output into vars and match with bash [[ ]] — do NOT pipe xcodebuild
+          # into `grep -q`/`head`. grep -q closes the pipe on first match; xcodebuild then
+          # fails to write its 2nd line, raises an NSException on EPIPE and aborts non-zero,
+          # which `set -o pipefail` turns into a false failure.
+          xcver="$(xcodebuild -version)"
+          printf '%s\n' "$xcver"
+          [[ "$xcver" == *"Xcode 26"* ]] || { echo "::error::Xcode is not 26.x (macOS 26 needs Xcode 26)"; exit 1; }
+          sdks="$(xcodebuild -showsdks)"
+          [[ "$sdks" == *iphoneos* ]] || { echo "::error::no iOS SDK"; exit 1; }
+          [[ "$sdks" == *macosx* ]]   || { echo "::error::no macOS SDK"; exit 1; }
+          echo "-- SDKs OK (iphoneos + macosx present) --"
           # Apple Clang (not Homebrew) — required for Metal/CoreML/UIKit linking
           CLANGXX="$(xcrun --find clang++)"
-          echo "clang++=$CLANGXX"; xcrun clang++ --version | head -1
+          echo "clang++=$CLANGXX"
+          xcrun clang++ --version
           case "$CLANGXX" in
             /opt/homebrew/*) echo "::error::clang++ resolves to Homebrew LLVM, expected Apple Clang"; exit 1 ;;
           esac
