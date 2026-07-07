@@ -1451,11 +1451,10 @@ void LlamaModel::commonParamsParse(
 
     if (chosenBackend.first == BackendType::GPU) {
       params.mmproj_backend = chosenBackend.second;
-#ifdef __ANDROID__
-      bool mmprojUseGpu = false;
-#else
+      // QVAC-21257 TEST BRANCH ONLY: default the projector to GPU on every
+      // platform (including Android) so the full integration suite exercises
+      // GPU mmproj on the mobile Device Farm pools. Do not merge.
       bool mmprojUseGpu = true;
-#endif
       if (mmprojUseGpuOverride.has_value()) {
         mmprojUseGpu = mmprojUseGpuOverride.value();
       }
