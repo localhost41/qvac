@@ -107,6 +107,32 @@ if(TARGET llama::build_info)
     PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,llama::build_info>")
 endif()
 
+# Force-include the full ggml core (ggml + ggml-base) object code on every Unix
+# target (Linux, Android and macOS) so the entire ggml_* / gguf_* surface
+# promised by symbols.map / exports.txt is actually present in the module.
+# Whole-archiving llama above only pulls the ggml members llama itself
+# references, which omits APIs no llama code calls (e.g. the gguf writer
+# functions, since llama only reads models) and can leave the dlopen'd backend
+# .so files or header-only consumers with unresolved ggml_* / gguf_* symbols at
+# load/link time. A version script / exported-symbols list only filters
+# already-present symbols; it never pulls archive members in. This mirrors the
+# Windows path, which scans ggml::ggml / ggml::ggml-base when generating the
+# export .def. Static archives only: on Linux/Android the DL compute backends
+# are separate MODULE .so targets (staged via BACKEND_DL_LIBS) and must not be
+# whole-archived here; the type guard also skips ggml core if a build exposes it
+# as a shared/interface target.
+if(UNIX)
+  foreach(_ggml_core ggml::ggml ggml::ggml-base)
+    if(TARGET ${_ggml_core})
+      get_target_property(_ggml_core_type ${_ggml_core} TYPE)
+      if(_ggml_core_type STREQUAL "STATIC_LIBRARY")
+        target_link_libraries(${qvac-fabric}
+          PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,${_ggml_core}>")
+      endif()
+    endif()
+  endforeach()
+endif()
+
 # Override install_name so that consumers using @loader_path rpath can resolve
 # this library as a companion dependency (cmake-bare sets INSTALL_NAME_DIR ""
 # which produces a bare filename install_name that dyld cannot resolve via rpath).
