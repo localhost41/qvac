@@ -135,10 +135,10 @@ jobs:
           - os: macos-15-intel
             platform: darwin
             arch: x64
-          - os: windows-2025
-            platform: win32
-            arch: x64
-            runner: qvac-win25-x64
+          # QVAC-21257 TEST BRANCH ONLY: win32 leg removed — the self-hosted
+          # Windows runner fleet lost dumpbin/VS tooling (2026-07-07), which
+          # fails the prebuild post-steps and gates the integration stages
+          # this branch exists to run. Do not merge.
     runs-on: ${{ matrix.runner || matrix.os }}
     environment: release
     name: ${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.tags }}

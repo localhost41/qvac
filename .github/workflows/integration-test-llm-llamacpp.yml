@@ -112,11 +112,8 @@ jobs:
             arch: x64
             runner: macos-15-large
             label: darwin-x64
-          - os: windows-2025
-            platform: win32
-            arch: x64
-            runner: qvac-win25-x64-gpu
-            label: win32-x64
+          # QVAC-21257 TEST BRANCH ONLY: win32 leg removed — no win32 prebuild
+          # artifact (broken Windows runner fleet, 2026-07-07). Do not merge.
 
     steps:
       - name: Setup Node.js
