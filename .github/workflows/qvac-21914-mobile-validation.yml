@@ -1,0 +1,81 @@
+# QVAC-21914 validation-only wrapper — NEVER MERGE.
+#
+# Runs the Android mobile integration suite against the addon built FROM THIS
+# BRANCH (with its qvac-fabric overlay port), on a selectable Device Farm
+# device and test subset. Needed because integration-mobile-test-llm-llamacpp
+# resolves prebuilds artifact-first WITHIN THE SAME RUN and otherwise falls
+# back to the npm-published addon — a standalone dispatch (e.g. the weekend
+# workflow) would silently test the published binaries instead of the fix
+# under validation. This wrapper reproduces the on-pr prebuild -> mobile
+# chain, minus desktop/iOS.
+#
+# Dispatch examples:
+#   Targeted S25-only single test:
+#     -f test_groups='[{"name":"tileModeOnly","grep":"runQwen35ImageTileModeTokensTest"}]'
+#     -f device_model='S25 Ultra' -f device_manufacturer=Samsung
+#   Full Android suite on the 3-device pool: no inputs (defaults).
+name: QVAC-21914 mobile validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_groups:
+        description: "JSON array of {name,grep} shard overrides. Empty = all shards from test/mobile/test-groups.json"
+        required: false
+        type: string
+        default: ""
+      device_model:
+        description: "Device Farm MODEL filter (e.g. 'S25 Ultra'). Empty = default device pool"
+        required: false
+        type: string
+        default: ""
+      device_manufacturer:
+        description: "Device Farm MANUFACTURER filter (e.g. 'Samsung'). Empty = any"
+        required: false
+        type: string
+        default: ""
+      device_model_operator:
+        description: "MODEL filter operator: CONTAINS or EQUALS"
+        required: false
+        type: string
+        default: "CONTAINS"
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: qvac-21914-mobile-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prebuild:
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/prebuilds-llm-llamacpp.yml
+    secrets: inherit
+    with:
+      repository: ${{ github.repository }}
+
+  mobile:
+    needs: prebuild
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/integration-mobile-test-llm-llamacpp.yml
+    secrets: inherit
+    with:
+      repository: ${{ github.repository }}
+      ref: ${{ github.ref }}
+      platforms: Android
+      test_groups: ${{ inputs.test_groups }}
+      device_model: ${{ inputs.device_model }}
+      device_manufacturer: ${{ inputs.device_manufacturer }}
+      device_model_operator: ${{ inputs.device_model_operator }}
