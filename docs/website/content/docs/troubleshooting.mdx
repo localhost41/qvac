@@ -74,3 +74,38 @@ qvac bundle sdk
 ```
 
 If you do not install the CLI globally, run the latest version with `npx` instead.
+
+## macOS blocks startup: "A script was blocked because it contains malware"
+
+### Situation
+
+On macOS, after `npm install @qvac/sdk`, you ran your app (for example `node quickstart.js`) and macOS showed a popup:
+
+<WrapCode>
+
+```
+A script was blocked because it contains malware. This script did not harm your Mac.
+```
+</WrapCode>
+
+The terminal then closed and the app did not start.
+
+### Cause
+
+The SDK ships prebuilt native binaries for macOS (for example `qvac__llm-llamacpp.bare`). These binaries are ad-hoc signed, but they are not yet signed with an Apple Developer ID certificate or notarized by Apple. When npm downloads them, macOS adds the `com.apple.quarantine` extended attribute to the files. When your app loads them, macOS Gatekeeper blocks execution because the developer cannot be verified.
+
+### Solution
+
+Remove the quarantine attribute from the installed packages, then run your app again:
+
+```bash
+xattr -rd com.apple.quarantine node_modules
+```
+
+Then re-run your command. For example:
+
+```bash
+node quickstart.js
+```
+
+Re-run `xattr -rd com.apple.quarantine node_modules` after any fresh `npm install` that re-downloads the binaries.
