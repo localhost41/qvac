@@ -1,0 +1,19 @@
+{
+  "name": "qvac-lib-inference-addon-cpp",
+  "version": "1.2.3",
+  "description": "QVAC-21914 VALIDATION-ONLY overlay: builds from the in-tree monorepo source (packages/inference-addon-cpp) so llm-llamacpp picks up the JsAsyncTask cancel/unload teardown fix without a registry publish. NOT FOR MERGE — the permanent fix ships via a qvac-registry-vcpkg version bump.",
+  "dependencies": [
+    {
+      "name": "qvac-lint-cpp",
+      "version>=": "1.4.5"
+    },
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ]
+}

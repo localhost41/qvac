@@ -1,4 +1,6 @@
 {
+  "$comment": "QVAC-21914 VALIDATION-ONLY: overlay-ports pulls qvac-lib-inference-addon-cpp from the in-tree source (JsAsyncTask teardown fix). Remove with packages/ports/qvac-lib-inference-addon-cpp before merge; ship via registry bump.",
+  "overlay-ports": ["../ports"],
   "default-registry": {
     "kind": "git",
     "baseline": "c57eec31bdc37ce3a98537b312f5a366b554db6a",
