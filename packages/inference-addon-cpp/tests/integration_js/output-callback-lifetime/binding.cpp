@@ -71,6 +71,26 @@ js_value_t* blockEventLoop(js_env_t* env, js_callback_info_t* info) try {
 }
 JSCATCH
 
+// QVAC-21914: reproduce the cancel()+unload() teardown-thread race. Mirrors the
+// llm-llamacpp cancel() path — capture the AddonCpp by shared_ptr into a
+// JsAsyncTask so it outlives a racing destroyInstance(). The short worker sleep
+// deterministically lets the JS-thread destroyInstance() drop its reference
+// first, so the detached worker holds the LAST shared_ptr. Before the fix, the
+// worker then destroyed ~AddonCpp/~OutputCallBackJs (js_delete_reference /
+// uv_close) off the JS thread and aborted the runtime; after the fix the work
+// functor is released in onComplete on the JS thread.
+js_value_t* cancel(js_env_t* env, js_callback_info_t* info) try {
+  addon_cpp::JsArgsParser args(env, info);
+  auto& instance =
+      addon_cpp::JsInterface::getInstance(env, args.get(0, "instance"));
+  auto addonCppRef = instance.addonCpp;
+  return js::JsAsyncTask::run(env, [addonCppRef]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    addonCppRef->cancelJob();
+  });
+}
+JSCATCH
+
 js_value_t* outputCallbackLifetimeExports(js_env_t* env, js_value_t* exports) {
 #define V(name, fn)                                                            \
   {                                                                            \
@@ -86,6 +106,7 @@ js_value_t* outputCallbackLifetimeExports(js_env_t* env, js_value_t* exports) {
   V("createInstance", createInstance)
   V("runJob", runJob)
   V("blockEventLoop", blockEventLoop)
+  V("cancel", cancel)
   V("destroyInstance", addon_cpp::JsInterface::destroyInstance)
 #undef V
 

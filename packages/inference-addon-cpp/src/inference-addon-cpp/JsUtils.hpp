@@ -815,9 +815,18 @@ class JsAsyncTask {
     js_deferred_t* deferred;
     uv_async_t* async_handle;
     std::exception_ptr error;
+    // QVAC-21914: own the work functor here (rather than in the detached
+    // worker's closure) so it — and anything it captures, e.g. the last
+    // shared_ptr<AddonCpp> on the cancel path — is destroyed in onComplete on
+    // the JS/loop thread. Destroying it on the worker thread ran
+    // ~AddonCpp/~OutputCallBackJs (js_delete_reference/uv_close) off the JS
+    // thread, aborting the bare runtime (SIGABRT).
+    std::function<void()> work;
 
-    CallbackData(js_env_t* e, js_deferred_t* d, uv_async_t* h)
-        : env(e), deferred(d), async_handle(h), error(nullptr) {}
+    CallbackData(
+        js_env_t* e, js_deferred_t* d, uv_async_t* h, std::function<void()> w)
+        : env(e), deferred(d), async_handle(h), error(nullptr),
+          work(std::move(w)) {}
   };
 
   static void
@@ -881,12 +890,14 @@ public:
           "Failed to initialize async handle for JsAsyncTask");
     }
 
-    auto* data = new CallbackData(env, deferred, async_handle);
+    auto* data = new CallbackData(env, deferred, async_handle, std::move(work));
     async_handle->data = data;
 
-    std::thread([data, work = std::move(work)]() {
+    // The lambda captures only `data`; the work functor lives in `*data` and is
+    // destroyed by onComplete's unique_ptr on the JS thread (see CallbackData).
+    std::thread([data]() {
       try {
-        work();
+        data->work();
       } catch (...) {
         data->error = std::current_exception();
       }
