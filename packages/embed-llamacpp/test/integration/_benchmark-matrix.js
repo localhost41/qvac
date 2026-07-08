@@ -38,11 +38,11 @@ const CELLS = [
   { model: 'Qwen3-embedding-0.6B', quant: 'F16', repo: 'Qwen/Qwen3-Embedding-0.6B-GGUF', revision: 'main', file: 'Qwen3-Embedding-0.6B-f16.gguf' }
 ]
 
-// Sweep axes for the mobile sweep. The desktop copy of these lives in
-// benchmarks/performance/_sweep-grid.js; the small axis literals are duplicated
-// here so this module stays self-contained for the mobile bundler.
+// Mobile sweep axes, kept as standalone literals (not shared with the desktop
+// benchmarks/performance/_sweep-grid.js) so this module stays self-contained for
+// the mobile bundler. They intentionally differ from desktop (cpu+gpu vs gpu-only,
+// batch <= 2048 vs <= 8192) and must not be resynced. Model/quant come from CELLS.
 const PARAMETER_SWEEP = {
-  quantization: ['Q4_0', 'Q4_K_M', 'Q8_0', 'F16'],
   device: ['cpu', 'gpu'],
   batchSize: [256, 512, 1024, 2048],
   flashAttn: ['off', 'on']

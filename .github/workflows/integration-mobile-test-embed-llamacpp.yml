@@ -36,11 +36,6 @@ on:
         type: string
         required: false
         default: ""
-      qvac_perf_only:
-        description: "If true, restrict each test group to its perf-emitting tests only (reads test/mobile/perf-tests.json), so a benchmark batch runs just its shard instead of the whole suite + every shard. Used by Benchmark Performance."
-        type: boolean
-        required: false
-        default: false
   workflow_dispatch:
     inputs:
       ref:
@@ -156,7 +151,6 @@ jobs:
           # batch; normal mobile runs keep perf off and auto-detect test-groups.
           enables-perf: ${{ inputs.test_groups != '' && 'true' || 'false' }}
           test-groups: ${{ inputs.test_groups }}
-          qvac-perf-only: ${{ inputs.qvac_perf_only }}
 
       - name: Schedule Device Farm test run
         id: schedule
