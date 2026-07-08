@@ -2,11 +2,11 @@ vcpkg_from_github(
   OUT_SOURCE_PATH SOURCE_PATH
   REPO tetherto/qvac-fabric-llm.cpp
   # QVAC-21914 overlay: v9341.1.5 + non-coopmat clip FA AUTO fix
-  # + ggml-opencl submission hardening + review fixes (work-budget flush,
-  # total-memory clamp, causal assert, tests)
+  # + ggml-opencl submission hardening + review fixes + Windows DLL link fix
+  # (PR #181 head)
   # (branch fix/QVAC-21914-clip-fa-auto-noncoopmat)
-  REF d1fe2fad0cf3e31643bc4d5cdcbe7c810bfae2f6
-  SHA512 614e945eb5565bf1221f4f9aca5787b896d0d0de3c906228e1ace725babde5c88bd9ce5cc59b48cdb06a5deec77cf2bd7d15109ea6b5e7d2251d6972013671d4
+  REF dacb473f9877b8a38fe7707c722ee95155be3521
+  SHA512 fa9fb1bee283257d0922c234555dd6cb5127bae639fc4b7263a86b71ab82c083784bd5c67d522e2c1a3ea70ac7bba6acfc673e5d6f27c8bdfde8d697085fec29
 )
 
 # Upstream CMake options only — passed through to vcpkg_cmake_configure.
