@@ -63,6 +63,7 @@ struct ChatterboxConfig {
    * outside the three values is rejected by validateConfig.
    */
   std::string kvCacheType;
+  std::optional<float> cfgRate;
   /**
    * Desired output sample rate in Hz (8000–192000), or unset/0 to keep the
    * engine's native 24 kHz. Forwarded to the engine

@@ -25,9 +25,15 @@ const { recordTtsStats } = require('../utils/perf-helper')
 const platform = os.platform()
 const isMobile = platform === 'ios' || platform === 'android'
 
-// Language coverage test, not a GPU policy test: rely on the package
-// default (`useGPU: false`) rather than opting into GPU here.
-// Tests that *are* about GPU live in gpu-smoke.test.js.
+// This is a language-coverage sweep, but it runs on the GPU backend
+// (`useGPU: true`) on purpose: the MTL S3Gen vocoder dominates synthesis
+// (~94% of the run on CPU) and the Pixel-class CPU is slow enough that the
+// full es/fr/de/pt/it sweep plus per-language reloads blows the device e2e
+// time budget (Appium's ~20 min cap). GPU is ~5x faster on-device and keeps
+// the sweep inside the budget; where no GPU is wired in, tts-cpp falls back
+// to CPU on its own, so the language paths (tokenizer / run_t3 MTL dispatch /
+// MeCab / Cangjie) are still exercised everywhere. GPU-vs-CPU *policy* (no
+// silent fallback) is asserted separately in gpu-smoke.test.js.
 
 function getBaseDir () {
   return isMobile && global.testDir ? global.testDir : '.'
@@ -89,7 +95,8 @@ test('Chatterbox MTL TTS (ggml): synthesizes across es/fr/de/pt/it with shared e
     modelDir: download.targetDir,
     t3ModelPath: path.join(download.targetDir, 'chatterbox-t3-mtl.gguf'),
     s3genModelPath: path.join(download.targetDir, 'chatterbox-s3gen-mtl.gguf'),
-    language: MTL_SENTENCES[0].lang
+    language: MTL_SENTENCES[0].lang,
+    useGPU: true
   })
   try {
     for (let i = 0; i < MTL_SENTENCES.length; i++) {
@@ -143,7 +150,8 @@ test('Chatterbox MTL TTS (ggml): synthesizes Japanese with MeCab dictionary', { 
     t3ModelPath: path.join(download.targetDir, 'chatterbox-t3-mtl.gguf'),
     s3genModelPath: path.join(download.targetDir, 'chatterbox-s3gen-mtl.gguf'),
     mecabDictDir: mecab.dir,
-    language: 'ja'
+    language: 'ja',
+    useGPU: true
   })
   try {
     const t0 = Date.now()
@@ -190,7 +198,8 @@ test('Chatterbox MTL TTS (ggml): synthesizes Chinese with Cangjie table', { time
     t3ModelPath: path.join(download.targetDir, 'chatterbox-t3-mtl.gguf'),
     s3genModelPath: path.join(download.targetDir, 'chatterbox-s3gen-mtl.gguf'),
     cangjieTsvPath: cangjie.path,
-    language: 'zh'
+    language: 'zh',
+    useGPU: true
   })
   try {
     const t0 = Date.now()
@@ -228,7 +237,8 @@ test('Chatterbox MTL TTS (ggml): backendDevice + backendId surfaced in stats', {
 
   const model = await loadChatterboxMtlTTS({
     modelDir: download.targetDir,
-    language: 'es'
+    language: 'es',
+    useGPU: true
   })
   try {
     const result = await runTTS(

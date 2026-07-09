@@ -127,6 +127,7 @@ declare interface TTSGgmlOptions {
   nCtx?: number
   /** Chatterbox-only: T3 KV-cache storage dtype: 'f32' | 'f16' | 'q8_0' (default 'f16', ~50% of f32's memory; the safe cross-backend default).  'q8_0' is ~27% of f32 and decodes 20-30% faster on Metal, but only works on backends that implement the q8_0 CONT op (CPU, CUDA) — it hard-aborts the multilingual model on Metal, so it is opt-in.  Pass 'f32' for bit-exact parity with the pre-quantisation behaviour. */
   kvCacheType?: 'f32' | 'f16' | 'q8_0'
+  cfgRate?: number
   /** Override `std::thread::hardware_concurrency()`. */
   threads?: number
   /** Chatterbox-only: speech tokens per native streaming chunk (25 ~= 1 s of audio).  0 disables. */

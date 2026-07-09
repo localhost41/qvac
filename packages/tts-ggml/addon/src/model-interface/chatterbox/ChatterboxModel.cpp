@@ -76,6 +76,7 @@ tts_cpp::chatterbox::EngineOptions toEngineOptions(const ChatterboxConfig& cfg) 
   opts.n_ctx = cfg.nCtx.value_or(DEFAULT_N_CTX);
   opts.kv_cache_type =
       cfg.kvCacheType.empty() ? DEFAULT_KV_CACHE_TYPE : cfg.kvCacheType;
+  if (cfg.cfgRate.has_value()) opts.s3gen_cfg_rate = *cfg.cfgRate;
   if (cfg.nGpuLayers.has_value()) {
     opts.n_gpu_layers = *cfg.nGpuLayers;
   } else if (cfg.useGpu.has_value()) {
