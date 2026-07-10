@@ -54,10 +54,21 @@ Explore and use QVAC:
 | [**Examples**](https://github.com/tetherto/qvac-examples/) | Sample apps and PoCs built with QVAC SDK. |
 | [**Local model provider**](https://docs.qvac.tether.io/cli/http-server/connection/) | Use QVAC as a local model provider connected to your favorite AI tools. |
 | [**QV.AC**](https://qv.ac) | Get to know our local AI assistant. |
-| **Support and community** | We gather on [Discord](https://discord.com/invite/tetherdev) and [Keet](https://keet.io). Access our Keet room via [this link](keet://chat/nfo61f4e6zc5t1ifncyh9yp7s5eynbruz5bs95oc5ufn3e79entmhix74miigc8iz9iawfrb7pzk3am8eotxw8wat7554etbn7d6j4ho84b1zqnb63z7hxq1ubt5w4wi4kpq3mdgpijcnaifnhm7sy4cfxqqoyedpnb5qg1majcggy4s9s91fgtg3khgw). |
+| **Support and community** | We gather on [Discord](https://discord.com/invite/tetherdev) and [Keet](https://keet.io). Ask for help, give feedback, and discuss QVAC. |
 | [**Research**](https://huggingface.co/qvac) | Papers, datasets, and models optimized for edge devices. |
 | [**Ecosystem**](https://qvac.tether.io) | Discover the broader QVAC ecosystem. |
 | [**Our vision**](https://docs.qvac.tether.io/about/vision/) | Learn why Tether built QVAC. |
+
+Note: access our Keet room via this link:
+
+<details>
+<summary><code>keet://chat/nfo61f4e...</code></summary>
+
+```
+keet://chat/nfo61f4e6zc5t1ifncyh9yp7s5eynbruz5bs95oc5ufn3e79entmhix74miigc8iz9iawfrb7pzk3am8eotxw8wat7554etbn7d6j4ho84b1zqnb63z7hxq1ubt5w4wi4kpq3mdgpijcnaifnhm7sy4cfxqqoyedpnb5qg1majcggy4s9s91fgtg3khgw
+```
+
+</details>
 
 ## Quickstart
 
