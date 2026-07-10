@@ -25,7 +25,43 @@ Additionally, QVAC also provides an HTTP server, _allowing you to use it as a **
 
 Whether you're building applications with the SDK or using QVAC as a local model provider, the principle is the same: load models and run inference locally, or delegate inference to peers using the built-in P2P capabilities.
 
-### Quickstart
+### Functionalities
+
+#### AI capabilities
+
+* **Completion:** LLM inference for text generation and chat via [`qvac-fabric-llm.cpp`](https://github.com/tetherto/qvac-fabric-llm.cpp).
+* **Text embeddings:** vector embedding generation for semantic search, clustering, and retrieval, via `qvac-fabric-llm.cpp`.
+* **Translation:** text-to-text neural machine translation (NMT), via `qvac-fabric-llm.cpp` and [Bergamot](https://browser.mt).
+* **Transcription:** automatic speech recognition (ASR) for speech-to-text via [`qvac-ext-lib-whisper.cpp`](https://github.com/tetherto/qvac-ext-lib-whisper.cpp) or [NVIDIA Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2).
+* **Text-to-Speech:** speech synthesis for text-to-speech (TTS) using the Chatterbox and Supertonic neural TTS models.
+* **OCR:** optical character recognition (OCR) for extracting text from images via ONNX runtime.
+* **Image generation:** text-to-image generation via [`qvac-ext-stable-diffusion.cpp`](https://github.com/tetherto/qvac-ext-stable-diffusion.cpp).
+* **Fine-tuning:** adapting LLMs to domain-specific tasks via LoRA.
+* **Multimodal:** LLM inference over text, images, and other media within a single conversation context.
+* **RAG:** out-of-the-box retrieval-augmented generation workflow.
+
+#### P2P capabilities
+
+* **Delegated inference:** delegate inference to peers via the [Holepunch stack](https://holepunch.to), enabling resource sharing.
+* **Fetch models:** download AI models from peers via the distributed model registry.
+* **Blind relays:** connect peers across NATs/firewalls by routing traffic through relay nodes.
+
+#### Utilities
+
+* **Plugin system**: build lean apps by including only required AI capabilities, and extend the SDK by plugging in custom capabilities.
+* **Logging:** visibility into what's happening  during loading, inference, and other operations.
+* **Download Lifecycle:** pause and resume model downloads.
+* **Sharded models:** download a model that is sharded into multiple parts.
+
+### Complete user docs
+
+> [!TIP]
+> For comprehensive QVAC documentation, see [https://docs.qvac.tether.io](https://docs.qvac.tether.io).
+> There, you'll find [the compatibility matrix, installation instructions per environment/platform](https://docs.qvac.tether.io/sdk/getting-started/installation/), [reference with code examples for using each functionality](https://docs.qvac.tether.io/sdk/getting-started/), and much more.
+
+## Quickstart
+
+Want to get hands-on right away? Here's a simple example you can use to test QVAC.
 
 1. Create the examples workspace:
 
@@ -80,39 +116,7 @@ catch (error) {
 node quickstart.js
 ```
 
-### Functionalities
-
-#### AI capabilities
-
-* **Completion:** LLM inference for text generation and chat via [`qvac-fabric-llm.cpp`](https://github.com/tetherto/qvac-fabric-llm.cpp).
-* **Text embeddings:** vector embedding generation for semantic search, clustering, and retrieval, via `qvac-fabric-llm.cpp`.
-* **Translation:** text-to-text neural machine translation (NMT), via `qvac-fabric-llm.cpp` and [Bergamot](https://browser.mt).
-* **Transcription:** automatic speech recognition (ASR) for speech-to-text via [`qvac-ext-lib-whisper.cpp`](https://github.com/tetherto/qvac-ext-lib-whisper.cpp) or [NVIDIA Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2).
-* **Text-to-Speech:** speech synthesis for text-to-speech (TTS) using the Chatterbox and Supertonic neural TTS models.
-* **OCR:** optical character recognition (OCR) for extracting text from images via ONNX runtime.
-* **Image generation:** text-to-image generation via [`qvac-ext-stable-diffusion.cpp`](https://github.com/tetherto/qvac-ext-stable-diffusion.cpp).
-* **Fine-tuning:** adapting LLMs to domain-specific tasks via LoRA.
-* **Multimodal:** LLM inference over text, images, and other media within a single conversation context.
-* **RAG:** out-of-the-box retrieval-augmented generation workflow.
-
-#### P2P capabilities
-
-* **Delegated inference:** delegate inference to peers via the [Holepunch stack](https://holepunch.to), enabling resource sharing.
-* **Fetch models:** download AI models from peers via the distributed model registry.
-* **Blind relays:** connect peers across NATs/firewalls by routing traffic through relay nodes.
-
-#### Utilities
-
-* **Plugin system**: build lean apps by including only required AI capabilities, and extend the SDK by plugging in custom capabilities.
-* **Logging:** visibility into what's happening  during loading, inference, and other operations.
-* **Download Lifecycle:** pause and resume model downloads.
-* **Sharded models:** download a model that is sharded into multiple parts.
-
-### Complete user docs
-
-> [!TIP]
-> For comprehensive QVAC documentation, see [https://docs.qvac.tether.io](https://docs.qvac.tether.io).
-> There, you'll find [the compatibility matrix, installation instructions per environment/platform](https://docs.qvac.tether.io/sdk/getting-started/installation/), [reference with code examples for using each functionality](https://docs.qvac.tether.io/sdk/getting-started/), and much more.
+You’ll see the model download first. Then, QVAC will stream the response tokens and print them to the terminal.
 
 ## Contributing
 
