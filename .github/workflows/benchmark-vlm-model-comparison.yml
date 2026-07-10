@@ -796,14 +796,15 @@ jobs:
       device_model_operator: ${{ matrix.model_op }}
       # source_id/source_ref identify the build on this session (candidate = git:<sha>,
       # baseline = npm:<ver>); two-models legs have no matrix.source → falls back to addon.
-      device_env: "QVAC_VLM_DEVICES=${{ matrix.vlm_devices }};QVAC_VLM_MODE=${{ inputs.matrix_mode }};QVAC_VLM_PRESET=${{ inputs.matrix_preset }};QVAC_VLM_SOURCE_ID=${{ matrix.source || 'addon' }};QVAC_VLM_SOURCE_REF=${{ matrix.source == 'addon@candidate' && format('git:{0}', needs.context.outputs.head_sha) || (matrix.source == 'addon@baseline' && format('npm:{0}', needs.context.outputs.baseline_npm) || '') }}${{ inputs.matrix_samples != '' && format(';QVAC_VLM_SAMPLES={0}', inputs.matrix_samples) || '' }}${{ inputs.matrix_models != '' && format(';QVAC_VLM_MODELS=b64:{0}', needs.context.outputs.models_b64) || '' }}${{ needs.context.outputs.mobile_pertest_min != '' && format(';QVAC_VLM_TEST_TIMEOUT_MIN={0}', needs.context.outputs.mobile_pertest_min) || '' }};QVAC_VLM_MMPROJ_GPU=true;QVAC_G4V_STDFOLD=0"
+      device_env: "QVAC_VLM_DEVICES=${{ matrix.vlm_devices }};QVAC_VLM_MODE=${{ inputs.matrix_mode }};QVAC_VLM_PRESET=${{ inputs.matrix_preset }};QVAC_VLM_SOURCE_ID=${{ matrix.source || 'addon' }};QVAC_VLM_SOURCE_REF=${{ matrix.source == 'addon@candidate' && format('git:{0}', needs.context.outputs.head_sha) || (matrix.source == 'addon@baseline' && format('npm:{0}', needs.context.outputs.baseline_npm) || '') }}${{ inputs.matrix_samples != '' && format(';QVAC_VLM_SAMPLES={0}', inputs.matrix_samples) || '' }}${{ inputs.matrix_models != '' && format(';QVAC_VLM_MODELS=b64:{0}', needs.context.outputs.models_b64) || '' }}${{ needs.context.outputs.mobile_pertest_min != '' && format(';QVAC_VLM_TEST_TIMEOUT_MIN={0}', needs.context.outputs.mobile_pertest_min) || '' }};QVAC_VLM_MMPROJ_GPU=true;QVAC_G4V_STDFOLD=0;GGML_VK_PERF_LOGGER=1;GGML_VK_PERF_LOGGER_FREQUENCY=1"
       # QVAC-21901 bench (DO NOT MERGE): hardcode the projector A/B knobs on this
       # branch. QVAC_VLM_MMPROJ_GPU=true forces the projector onto the GPU in the
       # device=gpu cell (the device=cpu cell keeps CPU), so vision_enc_ms gpu-vs-cpu
-      # is the projector A/B. This sibling branch sets QVAC_G4V_STDFOLD=0 (fold-off);
-      # compare it with bench/QVAC-21901-mali-gemma4v-sweep (fold-on = 1) to isolate
-      # candidate #1. (dispatch-input plumbing not used because workflow_dispatch
-      # inputs are validated against the default branch.)
+      # is the projector A/B. This profile branch sets QVAC_G4V_STDFOLD=0 and
+      # enables GGML_VK_PERF_LOGGER at frequency 1 to capture per-op Vulkan timing
+      # (CONV_2D, MUL_MAT, RMS_NORM, attention) from the GPU-only Pixel 9 smoke.
+      # (dispatch-input plumbing not used because workflow_dispatch inputs are
+      # validated against the default branch.)
       # Suffix logs with the source tag (candidate/baseline) so the two sessions of a
       # build comparison upload distinct, identifiable artifacts.
       artifact_suffix: ${{ matrix.token }}${{ matrix.srctag != '' && format('-{0}', matrix.srctag) || '' }}

@@ -356,7 +356,9 @@ function runModel (spec) {
           seed: '42',
           ctx_size: spec.ctx_size,
           n_predict: String(nPredict),
-          verbosity: '2', // surfaces `image slice encoded in N ms` on native stderr
+          // QVAC-21901 profile branch: verbosity 3 preserves the Vulkan
+          // GGML_VK_PERF_LOGGER debug output in Device Farm logcat.
+          verbosity: '3',
           'reasoning-budget': '0', // disable Qwen3.5 thinking -> clean direct answers
           // QVAC-21901 projector A/B: force the mmproj (vision encoder) backend so
           // we can measure projector-on-CPU vs projector-on-GPU independently of the
