@@ -21,9 +21,9 @@
 
 QVAC is composed of JavaScript libraries and tools that converge in the JS SDK. _The SDK is the main entry point for using QVAC_. It is type-safe and exposes all QVAC capabilities through a unified interface. It runs on Node.js, [Bare runtime](https://bare.pears.com), and [Expo](https://expo.dev).
 
-Additionally, QVAC provides a CLI with tools and an HTTP server that exposes an [**OpenAI-compatible API**](https://platform.openai.com/docs/api-reference). *By implementing the OpenAI API format, QVAC can integrate with the broader AI ecosystem.*
+Additionally, QVAC also provides an HTTP server, _allowing you to use it as a **local model provider** for your favorite AI tools_, such as OpenCode, OpenClaw, and any other application compatible with the [OpenAI API](https://platform.openai.com/docs/api-reference).
 
-Install the `@qvac/sdk` npm package in your project. Then load models and run AI inference locally, or delegate inference to peers using the built-in P2P features.
+Whether you're building applications with the SDK or using QVAC as a local model provider, the principle is the same: load models and run inference locally, or delegate inference to peers using the built-in P2P capabilities.
 
 ### Quickstart
 
