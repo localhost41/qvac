@@ -124,7 +124,11 @@ module.exports = {
   // two-models compares these two complete VLMs:
   models: [MODEL_1, MODEL_2],
   // several-sources runs this one VLM across the engines below:
-  sourcesModel: SOURCES_MODEL,
+  // QVAC-21901 bench (DO NOT MERGE): several-sources hardcodes the model to
+  // sourcesModel and ignores matrix_models (harness.cjs), and only several-sources
+  // routes addon@candidate to mobile — so point it at GEMMA4_Q4 to benchmark our
+  // Gemma-4V candidate build on Mali. (Upstream default is SOURCES_MODEL = qwen3.5.)
+  sourcesModel: GEMMA4_Q4,
   engines: ['addon', 'fabric-cli', 'upstream-cli'],
   engine: 'addon', //         the fixed engine for two-models
 
