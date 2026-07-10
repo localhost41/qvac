@@ -106,11 +106,9 @@ You'll see the model download first. Then, QVAC will stream the response tokens 
 
 ## Contributing
 
-### Development
+We welcome contributions! Feel free to open a pull request, report bugs, or share ideas through issues.
 
-- For the standard development workflow used in this monorepo, see [`/docs/gitflow.md`](./docs/gitflow.md).
-- For development specifics of each QVAC component, refer to the documentation in the respective subdirectory under `/packages`.
-- For the QVAC architecture as a whole, see `/docs/architecture`.
+See [CONTRIBUTING](./CONTRIBUTING.md) for details.
 
 ## Banners and badges
 
