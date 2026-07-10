@@ -45,6 +45,21 @@ Whether you're building applications with the SDK or using QVAC as a local model
 | **OCR** | Optical character recognition for extracting text from images via ONNX Runtime. |
 | **Image classification** | Classify images into labels with confidence scores via [a customized GGML backend](https://github.com/tetherto/qvac/tree/main/packages/classification-ggml). |
 
+## Resources
+
+Resources to explore and use QVAC:
+
+| Resource | Description |
+| --- | --- |
+| [**Docs**](https://docs.qvac.tether.io) | Comprehensive QVAC documentation. |
+| [**Examples**](https://github.com/tetherto/qvac-examples/) | Sample apps and PoCs built with QVAC SDK. |
+| [**Local model provider**](https://docs.qvac.tether.io/cli/http-server/connection/) | Use the HTTP server as a local model provider for AI tools that support OpenAI-compatible API. |
+| [**QV.AC**](https://qv.ac) | Get to know our local AI assistant app. |
+| **Support and community** | Connect with us and our community on [Discord](https://discord.com/invite/tetherdev) and [Keet](https://keet.io). Ask for help, give feedback, and discuss QVAC. Access our Keet room via [this link](keet://chat/nfo61f4e6zc5t1ifncyh9yp7s5eynbruz5bs95oc5ufn3e79entmhix74miigc8iz9iawfrb7pzk3am8eotxw8wat7554etbn7d6j4ho84b1zqnb63z7hxq1ubt5w4wi4kpq3mdgpijcnaifnhm7sy4cfxqqoyedpnb5qg1majcggy4s9s91fgtg3khgw). |
+| [**Research**](https://huggingface.co/qvac) | Papers, datasets, and models optimized for edge devices. |
+| [**Ecosystem**](https://qvac.tether.io) | Discover the broader QVAC ecosystem. |
+| [**Our vision**](https://docs.qvac.tether.io/about/vision/) | Learn why Tether built QVAC. |
+
 ## Quickstart
 
 Want to get hands-on right away? Here's a simple example you can use to test QVAC.
