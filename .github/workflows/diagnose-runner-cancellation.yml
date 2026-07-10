@@ -1,0 +1,136 @@
+# Throwaway diagnostic for the "cannot cancel CI runs" incident.
+#
+# Goal: isolate WHY jobs ignore cancellation and run to `timeout-minutes`.
+# Evidence from real runs (e.g. prebuild/linux-x64 stuck 360m in
+# `bare-make generate`) shows the runner's end-of-job sweep terminating
+# ORPHAN processes (cmake/vcpkg/ninja/clang++) — i.e. the build detached
+# from the runner's tracked process tree and escaped cancellation.
+#
+# How to run it: it triggers automatically on any PR that touches THIS
+# file (see `on.pull_request.paths` below) — `pull_request` uses the
+# workflow from the PR head branch, so no merge to the default branch is
+# needed. It is also `workflow_dispatch`-able once on the default branch.
+#
+# This workflow runs four independent probes and you cancel the run
+# manually ~2 minutes in. Then compare how long each job took to reach
+# `cancelled` (Actions UI / `gh run view`):
+#
+#   control-hosted-sleep      hosted, plain sleep     -> baseline; must cancel in seconds
+#   selfhosted-sleep          self-hosted, plain sleep-> is basic self-hosted cancel broken?
+#   selfhosted-signal-ignorer self-hosted, traps TERM -> does the runner escalate to SIGKILL?
+#   selfhosted-orphan         self-hosted, detached   -> does cancel reap orphaned children?
+#
+# Every job prints its runner hostname + a stable marker path so the
+# self-hosted host can be inspected over SSH after cancelling (the
+# `selfhosted-orphan` job keeps writing to its marker file; if timestamps
+# continue AFTER the cancel time, the orphan survived cancellation and the
+# root cause is confirmed).
+#
+# DELETE THIS FILE once the incident is understood.
+
+name: Diagnose runner cancellation
+
+on:
+  # Auto-runs when a PR changes this file, so it can be exercised on a
+  # feature branch without landing on the default branch first. Internal
+  # (non-fork) branches run on self-hosted runners as normal.
+  pull_request:
+    paths:
+      - ".github/workflows/diagnose-runner-cancellation.yml"
+  workflow_dispatch:
+    inputs:
+      selfhosted_label:
+        description: "Self-hosted runner label to probe"
+        type: string
+        required: false
+        default: qvac-ubuntu2204-x64
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  control-hosted-sleep:
+    name: control / hosted plain sleep
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Identify runner
+        run: |
+          echo "hostname=$(hostname)"
+          echo "runner_name=$RUNNER_NAME"
+          echo "runner_environment=$RUNNER_ENVIRONMENT"
+      - name: Block for 10 minutes (cancel me)
+        run: |
+          echo "control (hosted): blocking; expect near-instant cancellation"
+          sleep 600
+
+  selfhosted-sleep:
+    name: self-hosted / plain sleep
+    runs-on: ${{ inputs.selfhosted_label || 'qvac-ubuntu2204-x64' }}
+    timeout-minutes: 15
+    steps:
+      - name: Identify runner
+        run: |
+          echo "hostname=$(hostname)"
+          echo "runner_name=$RUNNER_NAME"
+          echo "runner_environment=$RUNNER_ENVIRONMENT"
+      - name: Block for 10 minutes (cancel me)
+        run: |
+          echo "self-hosted plain sleep: blocking; does Cancel stop this promptly?"
+          sleep 600
+
+  selfhosted-signal-ignorer:
+    name: self-hosted / ignores SIGTERM+SIGINT
+    runs-on: ${{ inputs.selfhosted_label || 'qvac-ubuntu2204-x64' }}
+    timeout-minutes: 15
+    steps:
+      - name: Identify runner
+        run: |
+          echo "hostname=$(hostname)"
+          echo "runner_name=$RUNNER_NAME"
+      - name: Ignore TERM/INT, only SIGKILL should stop this
+        run: |
+          # If the job reaches cancelled quickly, the runner escalated to
+          # SIGKILL against a tracked-but-uncooperative process (good).
+          # If it runs to the 15m timeout, the runner is NOT force-killing.
+          trap 'echo "caught+ignored TERM $(date -u +%s)"' TERM
+          trap 'echo "caught+ignored INT $(date -u +%s)"' INT
+          echo "ignoring TERM/INT for 10 minutes"
+          for _ in $(seq 1 120); do
+            sleep 5
+          done
+
+  selfhosted-orphan:
+    name: self-hosted / detached child survives cancel?
+    runs-on: ${{ inputs.selfhosted_label || 'qvac-ubuntu2204-x64' }}
+    timeout-minutes: 15
+    steps:
+      - name: Identify runner
+        run: |
+          echo "hostname=$(hostname)"
+          echo "runner_name=$RUNNER_NAME"
+      - name: Spawn a detached (orphaned) child, then block
+        run: |
+          # Mimic how vcpkg/cmake/ninja detach from the runner's tracked
+          # tree. `setsid` moves the child into its own session so a
+          # tree-scoped cancel cannot reach it. The child heartbeats to a
+          # stable marker file. After cancelling the run, SSH to the host
+          # printed above and:
+          #   cat "$MARK"
+          # If "orphan alive" timestamps continue past the cancel time, the
+          # detached child survived cancellation -> root cause confirmed.
+          MARK="/tmp/qvac-cancel-diag-${{ github.run_id }}.log"
+          echo "marker_file=$MARK"
+          echo "run_id=${{ github.run_id }} host=$(hostname) start=$(date -u +%s)" > "$MARK"
+          # $MARK / $(date) are intentionally NOT expanded now: they must be
+          # evaluated inside the detached child at each heartbeat. MARK is
+          # passed via the environment so the child resolves it at runtime.
+          # shellcheck disable=SC2016
+          MARK="$MARK" setsid bash -c 'while true; do echo "orphan alive $(date -u +%s)" >> "$MARK"; sleep 5; done' < /dev/null > /dev/null 2>&1 &
+          disown || true
+          echo "spawned detached child (own session); blocking foreground 10m"
+          sleep 600
