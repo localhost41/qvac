@@ -25,39 +25,25 @@ Additionally, QVAC also provides an HTTP server, _allowing you to use it as a **
 
 Whether you're building applications with the SDK or using QVAC as a local model provider, the principle is the same: load models and run inference locally, or delegate inference to peers using the built-in P2P capabilities.
 
-### Functionalities
+## AI capabilities
 
-#### AI capabilities
-
-* **Completion:** LLM inference for text generation and chat via [`qvac-fabric-llm.cpp`](https://github.com/tetherto/qvac-fabric-llm.cpp).
-* **Text embeddings:** vector embedding generation for semantic search, clustering, and retrieval, via `qvac-fabric-llm.cpp`.
-* **Translation:** text-to-text neural machine translation (NMT), via `qvac-fabric-llm.cpp` and [Bergamot](https://browser.mt).
-* **Transcription:** automatic speech recognition (ASR) for speech-to-text via [`qvac-ext-lib-whisper.cpp`](https://github.com/tetherto/qvac-ext-lib-whisper.cpp) or [NVIDIA Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2).
-* **Text-to-Speech:** speech synthesis for text-to-speech (TTS) using the Chatterbox and Supertonic neural TTS models.
-* **OCR:** optical character recognition (OCR) for extracting text from images via ONNX runtime.
-* **Image generation:** text-to-image generation via [`qvac-ext-stable-diffusion.cpp`](https://github.com/tetherto/qvac-ext-stable-diffusion.cpp).
-* **Fine-tuning:** adapting LLMs to domain-specific tasks via LoRA.
-* **Multimodal:** LLM inference over text, images, and other media within a single conversation context.
-* **RAG:** out-of-the-box retrieval-augmented generation workflow.
-
-#### P2P capabilities
-
-* **Delegated inference:** delegate inference to peers via the [Holepunch stack](https://holepunch.to), enabling resource sharing.
-* **Fetch models:** download AI models from peers via the distributed model registry.
-* **Blind relays:** connect peers across NATs/firewalls by routing traffic through relay nodes.
-
-#### Utilities
-
-* **Plugin system**: build lean apps by including only required AI capabilities, and extend the SDK by plugging in custom capabilities.
-* **Logging:** visibility into what's happening  during loading, inference, and other operations.
-* **Download Lifecycle:** pause and resume model downloads.
-* **Sharded models:** download a model that is sharded into multiple parts.
-
-### Complete user docs
-
-> [!TIP]
-> For comprehensive QVAC documentation, see [https://docs.qvac.tether.io](https://docs.qvac.tether.io).
-> There, you'll find [the compatibility matrix, installation instructions per environment/platform](https://docs.qvac.tether.io/sdk/getting-started/installation/), [reference with code examples for using each functionality](https://docs.qvac.tether.io/sdk/getting-started/), and much more.
+| Task | Description |
+| --- | --- |
+| **Text generation** | LLM inference for text generation and chat via [Fabric LLM](https://github.com/tetherto/qvac-fabric-llm.cpp). |
+| **Text embeddings** | Vector embedding generation for semantic search, clustering, and retrieval, via Fabric LLM. |
+| **RAG** | Out-of-the-box retrieval-augmented generation workflow. |
+| **Fine-tuning** | Adapting LLMs to domain-specific tasks via LoRA. |
+| **Multimodal** | LLM inference over text, images, and other media within a single conversation context. |
+| **Image generation** | Text-to-image and image-to-image generation via a customized Diffusion backend. |
+| **Video generation** | Text-to-video and image-to-video generation via a customized Diffusion backend. |
+| **Transcription** | Automatic speech recognition (ASR) via a customized Whisper backend or [NVIDIA Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2). |
+| **Text-to-Speech** | Speech synthesis (TTS) via [a customized GGML backend](https://github.com/tetherto/qvac/tree/main/packages/tts-ggml). |
+| **Voice assistant** | Real-time voice pipeline: transcription, text generation, and speech synthesis in one loop. |
+| **Translation** | Text-to-text neural machine translation (NMT), via Fabric LLM and [Bergamot](https://browser.mt). |
+| **BCI** | Brain–computer interface transcription via [a customized Whisper backend](https://github.com/tetherto/qvac/tree/main/packages/bci-whispercpp). |
+| **VLA** | Vision-language-action for robot control via [a customized GGML backend](https://github.com/tetherto/qvac/tree/main/packages/vla-ggml). |
+| **OCR** | Optical character recognition for extracting text from images via ONNX Runtime. |
+| **Image classification** | Classify images into labels with confidence scores via [a customized GGML backend](https://github.com/tetherto/qvac/tree/main/packages/classification-ggml). |
 
 ## Quickstart
 
@@ -116,7 +102,7 @@ catch (error) {
 node quickstart.js
 ```
 
-You’ll see the model download first. Then, QVAC will stream the response tokens and print them to the terminal.
+You'll see the model download first. Then, QVAC will stream the response tokens and print them to the terminal.
 
 ## Contributing
 
