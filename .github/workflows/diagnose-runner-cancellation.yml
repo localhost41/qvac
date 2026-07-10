@@ -134,3 +134,21 @@ jobs:
           disown || true
           echo "spawned detached child (own session); blocking foreground 10m"
           sleep 600
+
+  # EXPERIMENT (H1): a job targeting a SATURATED label (both GPU runners
+  # busy) so it stays `queued`. We cancel the run while this is queued and
+  # observe: does it stay cancelled, or get dispatched + run anyway?
+  queue-probe-saturated:
+    name: self-hosted / QUEUED behind saturated GPU label
+    runs-on: qvac-ubuntu2204-x64-gpu
+    timeout-minutes: 15
+    steps:
+      - name: Identify runner + dispatch time
+        run: |
+          echo "hostname=$(hostname)"
+          echo "runner_name=$RUNNER_NAME"
+          echo "DISPATCHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      - name: Block (I was cancelled while queued — did I still run?)
+        run: |
+          echo "QUEUE_PROBE_RUNNING $(date -u +%Y-%m-%dT%H:%M:%SZ) — if this ran after a cancel, H1 is confirmed"
+          sleep 180
