@@ -105,6 +105,14 @@ const TEST_TIMEOUT_MIN = intEnv('QVAC_VLM_TEST_TIMEOUT_MIN') || 30
 const BLOCK_OVERRIDE = nonNegEnv('QVAC_VLM_BLOCK')
 const MODEL_INDEX = nonNegEnv('QVAC_VLM_MODEL_INDEX')
 const BACKENDS_DIR = env('QVAC_VLM_BACKENDS_DIR')
+// QVAC-21901 projector A/B knob: force the mmproj (vision encoder) backend.
+// '' = addon auto-default (Mali -> CPU); 'true'/'1'/'on' -> GPU; 'false'/'0'/'off' -> CPU.
+const MMPROJ_GPU = (() => {
+  const v = env('QVAC_VLM_MMPROJ_GPU').trim().toLowerCase()
+  if (v === '1' || v === 'true' || v === 'on') return 'true'
+  if (v === '0' || v === 'false' || v === 'off') return 'false'
+  return ''
+})()
 
 // Warmup passes run before the measured ones to prime weights/caches and let the
 // machine reach a steady thermal state — most important on phones, which throttle
@@ -350,6 +358,11 @@ function runModel (spec) {
           n_predict: String(nPredict),
           verbosity: '2', // surfaces `image slice encoded in N ms` on native stderr
           'reasoning-budget': '0', // disable Qwen3.5 thinking -> clean direct answers
+          // QVAC-21901 projector A/B: force the mmproj (vision encoder) backend so
+          // we can measure projector-on-CPU vs projector-on-GPU independently of the
+          // model backend. Empty = addon auto-default (Mali -> CPU). Only meaningful
+          // on the GPU model cell (device=gpu); ignored when no GPU backend.
+          ...(MMPROJ_GPU !== '' ? { 'mmproj-use-gpu': MMPROJ_GPU } : {}),
           ...(BACKENDS_DIR ? { backendsDir: BACKENDS_DIR } : {}) // candidate/baseline build swap (scheduler)
         },
         logger: console,
