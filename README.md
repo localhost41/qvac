@@ -55,8 +55,9 @@ Explore and use QVAC:
 | [**Local model provider**](https://docs.qvac.tether.io/cli/http-server/connection/) | Use QVAC as a local model provider connected to your favorite AI tools. |
 | [**QV.AC**](https://qv.ac) | Get to know our local AI assistant. |
 | **Support and community** | We gather on [Discord](https://discord.com/invite/tetherdev) and [Keet](https://keet.io). Ask for help, give feedback, and discuss QVAC. |
-| [**Research**](https://huggingface.co/qvac) | Papers, datasets, and models optimized for edge devices. |
+| [**Blog**](https://qvac.tether.io/blog/) | Tutorials, deep dives, engineering notes, and announcements. |
 | [**Ecosystem**](https://qvac.tether.io) | Discover the broader QVAC ecosystem. |
+| [**Research**](https://huggingface.co/qvac) | Papers, datasets, and models optimized for edge devices. |
 | [**Our vision**](https://docs.qvac.tether.io/about/vision/) | Learn why Tether built QVAC. |
 
 Note: access our Keet room via this link:
