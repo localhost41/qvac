@@ -53,6 +53,9 @@ export {
   vlaPreprocessImage,
   vlaPadState,
   VLA_DEFAULT_IMAGE_SIZE,
+  lipsync,
+  lipsyncStream,
+  lipsyncHparams,
   type FinetuneHandle
 } from './client/api'
 export { close } from './client'
@@ -139,6 +142,12 @@ export {
   type VlaClientRunResult,
   type VlaHparams,
   type VlaStats,
+  type LipsyncConfig,
+  type LipsyncClientRunParams,
+  type LipsyncClientRunResult,
+  type LipsyncStreamBatch,
+  type LipsyncHparams,
+  type LipsyncStats,
   definePlugin,
   defineHandler,
   defineDuplexHandler,
@@ -157,6 +166,7 @@ export {
   PLUGIN_DIFFUSION,
   PLUGIN_VLA,
   PLUGIN_CLASSIFICATION,
+  PLUGIN_LIPSYNC,
   SDK_DEFAULT_PLUGINS,
   type BuiltinPlugin,
   type ProfilerMode,

@@ -15,6 +15,7 @@ const modelRegistryEntryAddonSchema = z.enum([
   'diffusion',
   'vla',
   'classification',
+  'lipsync',
   'other'
 ])
 
@@ -36,6 +37,7 @@ export const modelRegistryEngineSchema = z.enum([
   ModelType.sdcppGeneration,
   ModelType.ggmlVla,
   ModelType.ggmlClassification,
+  ModelType.ggmlLipsync,
   'onnx-vad'
 ])
 

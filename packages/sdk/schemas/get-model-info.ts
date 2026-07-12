@@ -71,6 +71,7 @@ export const modelInfoSchema = z.object({
       'diffusion',
       'vla',
       'classification',
+      'lipsync',
       'other'
     ])
     .describe('Inference addon / capability category this model belongs to.'),

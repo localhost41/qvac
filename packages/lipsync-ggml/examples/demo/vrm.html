@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QVAC Lipsync — VRM Avatar (LAM Audio2Expression on ggml)</title>
+<style>
+  /* Committed single-theme: a dark kiosk stage. */
+  :root {
+    --bg: #0C1118;
+    --panel: #141C27;
+    --panel-2: #10161F;
+    --line: #223046;
+    --ink: #E9EEF5;
+    --muted: #8B95A7;
+    --accent: #26A17B;
+    --accent-soft: #1B5E4B;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column; min-height: 100vh;
+  }
+  header {
+    padding: 20px 28px 14px;
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 19px; font-weight: 600; letter-spacing: 0.01em; }
+  header h1 .tag { color: var(--accent); font-weight: 700; }
+  .pipeline {
+    color: var(--muted); font-family: var(--mono); font-size: 12px;
+    letter-spacing: 0.02em;
+  }
+  main {
+    flex: 1; display: grid; grid-template-columns: minmax(340px, 1.4fr) minmax(280px, 1fr);
+    gap: 22px; padding: 22px 28px; max-width: 1200px; margin: 0 auto; width: 100%;
+  }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+
+  .stage {
+    background: radial-gradient(ellipse 90% 70% at 50% 38%, #17212F 0%, var(--panel-2) 75%);
+    border: 1px solid var(--line); border-radius: 14px;
+    display: flex; align-items: stretch; justify-content: center;
+    min-height: 480px; position: relative; overflow: hidden;
+  }
+  #stage3d { width: 100%; height: 100%; position: absolute; inset: 0; }
+  .caption {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 12px 20px; text-align: center;
+    font-size: 13px; color: var(--muted); font-style: italic;
+    background: linear-gradient(transparent, rgba(12,17,24,0.9) 45%);
+    pointer-events: none;
+  }
+  .loading {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; color: var(--muted); font-family: var(--mono);
+    font-size: 13px;
+  }
+
+  .side { display: flex; flex-direction: column; gap: 18px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 20px;
+  }
+  .card h2 {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--muted); margin-bottom: 14px;
+  }
+  .meter { display: grid; grid-template-columns: 132px 1fr 44px; gap: 10px; align-items: center; margin-bottom: 7px; }
+  .meter .name { font-family: var(--mono); font-size: 11.5px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meter .bar { height: 7px; border-radius: 4px; background: #1B2434; overflow: hidden; }
+  .meter .bar i {
+    display: block; height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--accent-soft), var(--accent));
+    border-radius: 4px; transition: width 60ms linear;
+  }
+  .meter .val { font-family: var(--mono); font-size: 11.5px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+
+  .transport { display: flex; align-items: center; gap: 14px; }
+  button#play {
+    width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--accent); color: #06120D; font-size: 20px;
+    display: flex; align-items: center; justify-content: center; flex: none;
+    transition: transform 80ms ease, background 120ms ease;
+  }
+  button#play:hover { background: #2FBF93; }
+  button#play:active { transform: scale(0.94); }
+  button#play:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  .scrub-wrap { flex: 1; position: relative; height: 34px; display: flex; align-items: center; }
+  #activity { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 6px; }
+  input[type=range] {
+    position: relative; width: 100%; margin: 0; -webkit-appearance: none; appearance: none;
+    background: transparent; height: 34px; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 4px; height: 34px; border-radius: 2px;
+    background: var(--ink); box-shadow: 0 0 0 1px rgba(0,0,0,0.5);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 4px; height: 34px; border: none; border-radius: 2px; background: var(--ink);
+  }
+  input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .clock { font-family: var(--mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .clock b { color: var(--ink); font-weight: 600; }
+  select#clipSel {
+    width: 100%; padding: 8px 10px; border-radius: 8px;
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    font: 13px/1.3 inherit; cursor: pointer;
+  }
+  select#clipSel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .visemes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .viseme { text-align: center; }
+  .viseme .ring {
+    width: 42px; height: 42px; margin: 0 auto 6px; border-radius: 50%;
+    border: 2px solid var(--line); display: flex; align-items: center;
+    justify-content: center; font-family: var(--mono); font-size: 13px;
+    color: var(--muted); position: relative; transition: border-color 60ms, color 60ms;
+  }
+  .viseme.on .ring { border-color: var(--accent); color: var(--ink); }
+
+  footer { padding: 12px 28px 20px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+  footer code { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="tag">QVAC</span> Lipsync — VRM Avatar</h1>
+  <span class="pipeline">16 kHz PCM → wav2vec2 → 52 ARKit blendshapes @ 30 fps → VRM expressions · ggml CPU · @qvac/sdk</span>
+</header>
+
+<main>
+  <section class="stage" aria-label="3D avatar">
+    <div id="stage3d"></div>
+    <div class="loading" id="loading">loading avatar…</div>
+    <div class="caption" id="caption"></div>
+  </section>
+
+  <div class="side">
+    <div class="card">
+      <h2>Playback</h2>
+      <div style="margin-bottom:12px">
+        <select id="clipSel" aria-label="Clip"></select>
+      </div>
+      <div class="transport">
+        <button id="play" aria-label="Play or pause">▶</button>
+        <div class="scrub-wrap">
+          <canvas id="activity"></canvas>
+          <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Seek">
+        </div>
+      </div>
+      <div class="clock" style="margin-top:10px">
+        <b id="tCur">0.00</b> / <span id="tTot">0.00</span> s · frame <b id="fCur">0</b>/<span id="fTot">0</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Viseme mix (driving the rig)</h2>
+      <div class="visemes" id="visemes"></div>
+    </div>
+
+    <div class="card">
+      <h2>Live blendshape coefficients</h2>
+      <div id="meters"></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Coefficients from <code>@qvac/lipsync-ggml</code> via the SDK (<code>lipsyncStream</code>), raw model
+  output. The ARKit-52 stream is mapped onto the avatar's VRM expression presets (aa/ih/ou/ee/oh,
+  blinks, brows) — an interim rig per the project plan; the production mascot VRM will expose all 52
+  ARKit blendshapes natively (“PerfectSync”). Avatar “Seed-san” © VirtualCast, Inc., resized textures,
+  redistributed under VRM Public License 1.0 with credit.
+</footer>
+
+<script src="./vrm-libs.js"></script>
+<script src="./data.js"></script>
+<script>
+(function () {
+  'use strict'
+  // Surface any runtime failure into the stage instead of a silent hang.
+  const showFatal = (msg) => {
+    const el = document.getElementById('loading')
+    if (el) { el.style.display = 'flex'; el.textContent = String(msg) }
+  }
+  window.addEventListener('error', (e) => showFatal('error: ' + (e.message || e)))
+  window.addEventListener('unhandledrejection', (e) =>
+    showFatal('error: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)))
+
+  const DATA = window.LIPSYNC_DEMO_DATA
+  const FPS = DATA.fps
+  const NAMES = DATA.coeffNames
+  // clips: multi-clip data.js, with legacy single-clip fallback
+  const CLIPS = DATA.clips ||
+    [{ name: 'clip', frames: DATA.frames, audioB64: DATA.audioB64 }]
+  const VIDEOS = window.LIPSYNC_VIDEOS_B64 ||
+    (window.LIPSYNC_VIDEO_B64 ? { 0: window.LIPSYNC_VIDEO_B64 } : {})
+
+  const params = new URLSearchParams(location.search)
+  const RECORD = params.get('record') === '1'
+  let clipIndex = Math.max(0, Math.min(CLIPS.length - 1, Number(params.get('clip') || 0)))
+  let FRAMES = CLIPS[clipIndex].frames
+  let N = FRAMES.length
+  let DUR = N / FPS
+
+  const idx = {}
+  NAMES.forEach((n, i) => { idx[n] = i })
+  const get = (frame, name) => frame[idx[name]] || 0
+  const avg = (frame, a, b) => (get(frame, a) + get(frame, b)) / 2
+
+  // ?frame=N pins a specific frame — used for static/headless inspection
+  const pinnedFrame = params.get('frame')
+  function frameAt (time) {
+    if (pinnedFrame !== null) {
+      return FRAMES[Math.max(0, Math.min(N - 1, Number(pinnedFrame)))]
+    }
+    return FRAMES[Math.max(0, Math.min(N - 1, Math.floor(time * FPS)))]
+  }
+
+  // `media` is whatever owns the playback clock: the audio element normally,
+  // or the prerecorded fallback <video> when WebGL is unavailable.
+  let videoMode = false
+  let media = new Audio('data:audio/wav;base64,' + CLIPS[clipIndex].audioB64)
+
+  // ---- transport (same as the portrait demo) ----
+  const playBtn = document.getElementById('play')
+  const scrub = document.getElementById('scrub')
+  const tCur = document.getElementById('tCur')
+  const tTot = document.getElementById('tTot')
+  const fCur = document.getElementById('fCur')
+  const fTot = document.getElementById('fTot')
+  tTot.textContent = DUR.toFixed(2)
+  fTot.textContent = String(N)
+  playBtn.addEventListener('click', () => {
+    if (media.paused) { if (media.currentTime >= DUR - 0.05) media.currentTime = 0; media.play() } else { media.pause() }
+  })
+  let scrubbing = false
+  scrub.addEventListener('input', () => { scrubbing = true; media.currentTime = (scrub.value / 1000) * DUR })
+  scrub.addEventListener('change', () => { scrubbing = false })
+  function bindMedia (el) {
+    el.addEventListener('play', () => { playBtn.textContent = '❚❚' })
+    el.addEventListener('pause', () => { playBtn.textContent = '▶' })
+  }
+  bindMedia(media)
+
+  // Prerecorded fallback: the same scene captured to video (headless render
+  // of this page in ?sheet=N mode), used when WebGL can't initialise.
+  function enterVideoMode (reason) {
+    if (!VIDEOS[clipIndex]) {
+      showFatal(reason + ' — and no prerecorded video fallback is embedded')
+      return false
+    }
+    media.pause()
+    videoMode = true
+    const video = document.createElement('video')
+    video.src = 'data:video/mp4;base64,' + VIDEOS[clipIndex]
+    video.playsInline = true
+    video.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;'
+    document.getElementById('stage3d').appendChild(video)
+    document.getElementById('loading').style.display = 'none'
+    media = video
+    bindMedia(video)
+    refreshClipSelector()
+    startUiLoop()
+    return true
+  }
+
+  // ---- clip selection ----
+  const AVATAR_CREDIT = ' · avatar: Seed-san © VirtualCast, Inc. (VRM Public License 1.0)'
+  function setCaption (i) {
+    const name = CLIPS[i].name
+    document.getElementById('caption').textContent = /jfk/i.test(name)
+      ? '“Ask not what your country can do for you…” — JFK' + AVATAR_CREDIT
+      : '“' + name + '” — synthesized on-device by QVAC TTS (Supertonic)' + AVATAR_CREDIT
+  }
+  function loadClip (i) {
+    clipIndex = i
+    FRAMES = CLIPS[i].frames
+    N = FRAMES.length
+    DUR = N / FPS
+    tTot.textContent = DUR.toFixed(2)
+    fTot.textContent = String(N)
+    scrub.value = '0'
+    media.pause()
+    if (videoMode) {
+      media.src = 'data:video/mp4;base64,' + VIDEOS[i]
+    } else {
+      media.src = 'data:audio/wav;base64,' + CLIPS[i].audioB64
+    }
+    media.currentTime = 0
+    setCaption(i)
+    drawActivity()
+  }
+  const clipSel = document.getElementById('clipSel')
+  function refreshClipSelector () {
+    clipSel.innerHTML = ''
+    CLIPS.forEach((c, i) => {
+      const o = document.createElement('option')
+      o.value = String(i)
+      o.textContent = c.name
+      if (videoMode && !VIDEOS[i]) {
+        o.disabled = true
+        o.textContent += ' (3D only)'
+      }
+      clipSel.appendChild(o)
+    })
+    clipSel.value = String(clipIndex)
+    clipSel.parentElement.style.display = CLIPS.length > 1 ? '' : 'none'
+  }
+  clipSel.addEventListener('change', () => loadClip(Number(clipSel.value)))
+  refreshClipSelector()
+  setCaption(clipIndex)
+
+  const act = document.getElementById('activity')
+  function drawActivity () {
+    const w = act.clientWidth * devicePixelRatio
+    const h = act.clientHeight * devicePixelRatio
+    act.width = w; act.height = h
+    const c = act.getContext('2d')
+    c.fillStyle = '#1B2434'; c.fillRect(0, 0, w, h)
+    c.fillStyle = '#26A17B'
+    for (let f = 0; f < N; f++) {
+      const fr = FRAMES[f]
+      const e = Math.min(1, get(fr, 'jawOpen') * 1.2 + avg(fr, 'mouthLowerDownLeft', 'mouthLowerDownRight'))
+      const x = (f / N) * w
+      const bh = Math.max(2 * devicePixelRatio, e * h * 0.9)
+      c.globalAlpha = 0.35 + e * 0.65
+      c.fillRect(x, (h - bh) / 2, Math.max(1, w / N - 1), bh)
+    }
+    c.globalAlpha = 1
+  }
+
+  // ---- meters ----
+  const METER_NAMES = [
+    'jawOpen', 'mouthLowerDownLeft', 'mouthShrugUpper', 'mouthPressLeft',
+    'mouthPucker', 'mouthFunnel', 'mouthSmileLeft', 'browInnerUp'
+  ]
+  const metersEl = document.getElementById('meters')
+  const meterRefs = METER_NAMES.map((name) => {
+    const row = document.createElement('div')
+    row.className = 'meter'
+    row.innerHTML = '<span class="name">' + name + '</span><span class="bar"><i></i></span><span class="val">0.00</span>'
+    metersEl.appendChild(row)
+    return { bar: row.querySelector('i'), val: row.querySelector('.val'), name }
+  })
+
+  // ---- viseme chips ----
+  const VISEME_KEYS = ['aa', 'ih', 'ou', 'ee', 'oh']
+  const visemesEl = document.getElementById('visemes')
+  const visemeRefs = VISEME_KEYS.map((k) => {
+    const d = document.createElement('div')
+    d.className = 'viseme'
+    d.innerHTML = '<div class="ring">' + k + '</div>'
+    visemesEl.appendChild(d)
+    return { el: d, ring: d.querySelector('.ring'), key: k }
+  })
+
+  // ---- ARKit-52 → VRM expression mapping ----
+  // Interim mapping onto the VRM viseme/emotion presets (the production
+  // mascot VRM will consume all 52 ARKit channels natively). Openness is
+  // weighted by the channels this model actually modulates during speech,
+  // with an attack/release EMA standing in for upstream's smoothing.
+  let smoothOpen = 0
+  function visemeMix (frame) {
+    const jawOpen = get(frame, 'jawOpen')
+    const close = get(frame, 'mouthClose')
+    const lowerDown = avg(frame, 'mouthLowerDownLeft', 'mouthLowerDownRight')
+    const upperUp = avg(frame, 'mouthUpperUpLeft', 'mouthUpperUpRight')
+    const press = avg(frame, 'mouthPressLeft', 'mouthPressRight')
+    let open = 1.15 * lowerDown + 1.0 * jawOpen + 0.3 * upperUp - 0.6 * press - 0.8 * close
+    open = Math.max(0, Math.min(1, (open - 0.18) / 0.82))
+    smoothOpen += (open > smoothOpen ? 0.55 : 0.3) * (open - smoothOpen)
+
+    const round = Math.min(1, get(frame, 'mouthPucker') * 0.9 + get(frame, 'mouthFunnel') * 0.9)
+    const wide = Math.min(1, avg(frame, 'mouthSmileLeft', 'mouthSmileRight') +
+                             avg(frame, 'mouthStretchLeft', 'mouthStretchRight') * 0.7)
+    const o = smoothOpen
+    return {
+      aa: o * (1 - round * 0.85) * (1 - wide * 0.3),
+      oh: o * round * 0.9,
+      ou: round * (1 - o * 0.4) * 0.7,
+      ee: wide * o * 0.9,
+      ih: wide * (1 - o) * 0.45,
+      happy: avg(frame, 'mouthSmileLeft', 'mouthSmileRight') * 0.35,
+      surprised: get(frame, 'browInnerUp') * 0.4,
+      angry: avg(frame, 'browDownLeft', 'browDownRight') * 0.4
+    }
+  }
+
+  // procedural blink (renderer-side, as upstream does in post)
+  let nextBlink = 2.5
+  let blinkT = -1
+  function proceduralBlink (t, frame) {
+    const modelBlink = Math.max(get(frame, 'eyeBlinkLeft'), get(frame, 'eyeBlinkRight'))
+    if (modelBlink > 0.15) return modelBlink
+    if (t > nextBlink) { blinkT = t; nextBlink = t + 2.2 + Math.random() * 2.6 }
+    if (blinkT >= 0) {
+      const p = (t - blinkT) / 0.14
+      if (p < 1) return Math.sin(p * Math.PI)
+      blinkT = -1
+    }
+    return 0
+  }
+
+  // ---- shared UI update (used by both the live-3D and video paths) ----
+  function updateUi (time, fr) {
+    const mix = visemeMix(fr)
+    for (const v of visemeRefs) {
+      v.el.classList.toggle('on', mix[v.key] > 0.12)
+      v.ring.style.borderColor = mix[v.key] > 0.12
+        ? 'rgba(38,161,123,' + Math.min(1, 0.3 + mix[v.key]) + ')' : ''
+    }
+    const fi = Math.min(N - 1, Math.floor(time * FPS))
+    tCur.textContent = time.toFixed(2)
+    fCur.textContent = String(fi)
+    if (!scrubbing) scrub.value = String(Math.round((time / DUR) * 1000))
+    for (const m of meterRefs) {
+      const v = get(fr, m.name)
+      m.bar.style.width = (v * 100).toFixed(1) + '%'
+      m.val.textContent = v.toFixed(2)
+    }
+    return mix
+  }
+
+  // Video-fallback loop: no 3D, but meters/visemes stay live off the video clock.
+  let uiLoopRunning = false
+  function startUiLoop () {
+    if (uiLoopRunning) return
+    uiLoopRunning = true
+    drawActivity()
+    addEventListener('resize', drawActivity)
+    const step = () => {
+      requestAnimationFrame(step)
+      updateUi(media.currentTime, frameAt(media.currentTime))
+    }
+    step()
+  }
+
+  // ---- three.js scene ----
+  const container = document.getElementById('stage3d')
+  let renderer
+  if (params.get('video') === '1') {
+    enterVideoMode('forced video mode')
+    return
+  }
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+  } catch (e) {
+    enterVideoMode('WebGL unavailable: ' + e.message)
+    return
+  }
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+  renderer.outputColorSpace = THREE.SRGBColorSpace
+  container.appendChild(renderer.domElement)
+  const scene = new THREE.Scene()
+  const camera = new THREE.PerspectiveCamera(20, 1, 0.05, 20)
+
+  scene.add(new THREE.HemisphereLight(0xdfeaff, 0x2a2f38, 0.9))
+  const key = new THREE.DirectionalLight(0xffffff, 0.9)
+  key.position.set(0.6, 1.2, 1.2)
+  scene.add(key)
+
+  function resize () {
+    const w = container.clientWidth
+    const h = container.clientHeight
+    renderer.setSize(w, h)
+    camera.aspect = w / h
+    camera.updateProjectionMatrix()
+    drawActivity()
+  }
+  addEventListener('resize', resize)
+
+  let vrm = null
+  let headBone = null
+
+  function onModelReady (gltf) {
+    vrm = gltf.userData.vrm
+    if (window.VRMUtils) {
+      VRMUtils.removeUnnecessaryVertices(gltf.scene)
+      if (vrm.meta && vrm.meta.metaVersion === '0') VRMUtils.rotateVRM0(vrm)
+    }
+    scene.add(vrm.scene)
+    headBone = vrm.humanoid ? vrm.humanoid.getNormalizedBoneNode('head') : null
+
+    // frame the bust from the head position
+    const headPos = new THREE.Vector3()
+    if (headBone) headBone.getWorldPosition(headPos)
+    else headPos.set(0, 1.35, 0)
+    camera.position.set(0, headPos.y - 0.01, headPos.z + 1.15)
+    camera.lookAt(0, headPos.y - 0.06, headPos.z)
+
+    document.getElementById('loading').style.display = 'none'
+    resize()
+    if (RECORD) startRecording()
+    if (SHEET !== null) renderSheet(Number(SHEET))
+  }
+
+  // ?sheet=N: deterministically render frames N*24..N*24+23 into a 4×6 grid
+  // canvas and replace the page with it — captured by headless-Chrome
+  // screenshots and assembled into the fallback video by ffmpeg (untile).
+  const SHEET = params.get('sheet')
+  const SHEET_COLS = 4
+  const SHEET_ROWS = 6
+  const CELL_W = 560
+  const CELL_H = 720
+  function deterministicBlink (t) {
+    const phase = t % 3.4
+    return phase > 3.26 ? Math.sin(((phase - 3.26) / 0.14) * Math.PI) : 0
+  }
+  function poseFrame (f) {
+    const fr = FRAMES[Math.min(N - 1, f)]
+    const t = f / FPS
+    const mix = visemeMix(fr)
+    const em = vrm.expressionManager
+    if (em) {
+      for (const k of VISEME_KEYS) em.setValue(k, mix[k])
+      em.setValue('happy', mix.happy)
+      em.setValue('surprised', mix.surprised)
+      em.setValue('angry', mix.angry)
+      const blink = deterministicBlink(t)
+      em.setValue('blinkLeft', blink)
+      em.setValue('blinkRight', blink)
+    }
+    if (headBone) {
+      headBone.rotation.set(
+        Math.sin(t * 0.7) * 0.02 + mix.aa * 0.03,
+        Math.sin(t * 0.5) * 0.03,
+        Math.sin(t * 0.9) * 0.01
+      )
+    }
+    vrm.update(1 / FPS)
+  }
+  function renderSheet (s) {
+    const per = SHEET_COLS * SHEET_ROWS
+    renderer.setPixelRatio(1)
+    renderer.setSize(CELL_W, CELL_H)
+    camera.aspect = CELL_W / CELL_H
+    camera.updateProjectionMatrix()
+    renderer.setClearColor(0x10161f, 1)
+
+    // warm the openness EMA across the sheet boundary
+    smoothOpen = 0
+    for (let f = Math.max(0, s * per - 15); f < s * per; f++) {
+      visemeMix(FRAMES[Math.min(N - 1, f)])
+      vrm.update(1 / FPS)
+    }
+
+    const sheet = document.createElement('canvas')
+    sheet.width = SHEET_COLS * CELL_W
+    sheet.height = SHEET_ROWS * CELL_H
+    const sc = sheet.getContext('2d')
+    for (let i = 0; i < per; i++) {
+      poseFrame(s * per + i)
+      renderer.render(scene, camera)
+      sc.drawImage(renderer.domElement,
+        (i % SHEET_COLS) * CELL_W, Math.floor(i / SHEET_COLS) * CELL_H)
+    }
+    document.body.innerHTML = ''
+    document.body.style.margin = '0'
+    document.body.appendChild(sheet)
+    sheet.style.display = 'block'
+    document.title = 'SHEET_READY'
+  }
+
+  // ?record=1: capture the WebGL canvas to webm on a manual clock and POST
+  // it to the local receiver (used to produce the embedded video fallback).
+  let recorder = null
+  let recStart = 0
+  function startRecording () {
+    document.querySelector('.stage').style.cssText =
+      'position:fixed;inset:0;z-index:99;border-radius:0;'
+    document.querySelector('.caption').style.display = 'none'
+    renderer.setClearColor(0x10161f, 1)
+    resize()
+    const stream = renderer.domElement.captureStream(30)
+    recorder = new MediaRecorder(stream, {
+      mimeType: 'video/webm;codecs=vp9',
+      videoBitsPerSecond: 4000000
+    })
+    const parts = []
+    recorder.ondataavailable = (e) => parts.push(e.data)
+    recorder.onstop = () => {
+      const blob = new Blob(parts, { type: 'video/webm' })
+      fetch('/upload', { method: 'POST', body: blob })
+        .then(() => { document.title = 'REC_DONE' })
+        .catch((e) => { document.title = 'REC_FAIL ' + e })
+    }
+    recStart = performance.now()
+    recorder.start()
+  }
+
+  function loadAvatar () {
+    const loader = new GLTFLoader()
+    loader.register((parser) => new VRMLoaderPlugin(parser))
+    const done = (buf) => {
+      // Force GLTFLoader onto the HTMLImageElement texture path: its default
+      // ImageBitmapLoader fetch()es blob: URLs, which strict sandbox CSPs
+      // (connect-src) block, while <img src="blob:..."> stays allowed. The
+      // loader picks its texture path when the parser is created, inside
+      // parse(), so toggle around that call.
+      const cib = window.createImageBitmap
+      try { window.createImageBitmap = undefined } catch (_) {}
+      try {
+        loader.parse(buf, '', onModelReady, (e) => {
+          showFatal('avatar load failed: ' + (e && e.message ? e.message : e))
+        })
+      } finally {
+        try { window.createImageBitmap = cib } catch (_) {}
+      }
+    }
+    if (window.LIPSYNC_VRM_B64) {
+      const bin = atob(window.LIPSYNC_VRM_B64)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      done(bytes.buffer)
+    } else {
+      fetch('./avatar.vrm')
+        .then((r) => {
+          if (!r.ok) throw new Error('fetch avatar.vrm: ' + r.status)
+          return r.arrayBuffer()
+        })
+        .then(done)
+        .catch((e) => {
+          document.getElementById('loading').textContent =
+            'avatar.vrm missing — see README (serve this folder over http)'
+          console.error(e)
+        })
+    }
+  }
+
+  // ---- render loop ----
+  const clock = new THREE.Clock()
+  let tAbs = 0
+  function tick () {
+    requestAnimationFrame(tick)
+    const dt = clock.getDelta()
+    tAbs += dt
+    let time = media.currentTime
+    if (RECORD && recorder) {
+      time = Math.min(DUR, (performance.now() - recStart) / 1000)
+      if (time >= DUR && recorder.state === 'recording') {
+        recorder.stop()
+      }
+    }
+    const fr = frameAt(time)
+    const mix = updateUi(time, fr)
+
+    if (vrm) {
+      const em = vrm.expressionManager
+      if (em) {
+        for (const k of VISEME_KEYS) em.setValue(k, mix[k])
+        em.setValue('happy', mix.happy)
+        em.setValue('surprised', mix.surprised)
+        em.setValue('angry', mix.angry)
+        const blink = proceduralBlink(tAbs, fr)
+        em.setValue('blinkLeft', blink)
+        em.setValue('blinkRight', blink)
+      }
+      if (headBone) {
+        headBone.rotation.set(
+          Math.sin(tAbs * 0.7) * 0.02 + mix.aa * 0.03,
+          Math.sin(tAbs * 0.5) * 0.03,
+          Math.sin(tAbs * 0.9) * 0.01
+        )
+      }
+      vrm.update(dt)
+    }
+    renderer.render(scene, camera)
+  }
+
+  loadAvatar()
+  resize()
+  tick()
+})()
+</script>
+</body>
+</html>

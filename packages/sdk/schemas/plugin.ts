@@ -380,6 +380,13 @@ export const PLUGIN_VLA = '@qvac/sdk/ggml-vla/plugin' as const
 export const PLUGIN_CLASSIFICATION = '@qvac/sdk/ggml-classification/plugin' as const
 
 /**
+ * Lipsync plugin (LAM Audio2Expression on ggml).
+ * Provides: ARKit-52 blendshape coefficients at 30 fps from 16 kHz PCM audio,
+ * for driving avatar facial animation (e.g. from TTS output).
+ */
+export const PLUGIN_LIPSYNC = '@qvac/sdk/ggml-lipsync/plugin' as const
+
+/**
  * All built-in SDK plugins.
  *
  * @example
@@ -399,7 +406,8 @@ export const SDK_DEFAULT_PLUGINS = [
   PLUGIN_OCR,
   PLUGIN_DIFFUSION,
   PLUGIN_VLA,
-  PLUGIN_CLASSIFICATION
+  PLUGIN_CLASSIFICATION,
+  PLUGIN_LIPSYNC
 ] as const
 
 export type BuiltinPlugin = (typeof SDK_DEFAULT_PLUGINS)[number]
@@ -440,3 +448,6 @@ export const ADDON_VLA = '@qvac/vla-ggml' as const
 
 /** Native addon package for image classification (GGML / MobileNetV3) */
 export const ADDON_CLASSIFICATION = '@qvac/classification-ggml' as const
+
+/** Native addon package for audio → blendshape lipsync (LAM Audio2Expression on ggml) */
+export const ADDON_LIPSYNC = '@qvac/lipsync-ggml' as const

@@ -18,7 +18,8 @@ export const ModelType = {
   ggmlOcr: 'ggml-ocr',
   sdcppGeneration: 'sdcpp-generation',
   ggmlVla: 'ggml-vla',
-  ggmlClassification: 'ggml-classification'
+  ggmlClassification: 'ggml-classification',
+  ggmlLipsync: 'ggml-lipsync'
 } as const
 
 // === INTERNAL: Alias keys (backward compat names) ===
@@ -33,7 +34,8 @@ const AliasKeys = {
   ocr: 'ocr',
   diffusion: 'diffusion',
   vla: 'vla',
-  classification: 'classification'
+  classification: 'classification',
+  lipsync: 'lipsync'
 } as const
 
 // === INTERNAL: Aliases (backward compat mapping) ===
@@ -52,7 +54,8 @@ export const ModelTypeAliases = {
   [AliasKeys.ocr]: ModelType.ggmlOcr,
   [AliasKeys.diffusion]: ModelType.sdcppGeneration,
   [AliasKeys.vla]: ModelType.ggmlVla,
-  [AliasKeys.classification]: ModelType.ggmlClassification
+  [AliasKeys.classification]: ModelType.ggmlClassification,
+  [AliasKeys.lipsync]: ModelType.ggmlLipsync
 } as const
 
 // === TYPES ===
@@ -251,3 +254,13 @@ export const classificationModelTypeSchema = modelTypeInputSchema
     'Classification model type: "classification" (alias) or "ggml-classification" (canonical)'
   )
 export type ClassificationModelTypeInput = z.infer<typeof classificationModelTypeSchema>
+
+/**
+ * Lipsync (audio → ARKit blendshapes) model type schema.
+ * - Alias: `"lipsync"` → resolves to `"ggml-lipsync"`
+ * - Canonical: `"ggml-lipsync"`
+ */
+export const lipsyncModelTypeSchema = modelTypeInputSchema
+  .extract([AliasKeys.lipsync, ModelType.ggmlLipsync])
+  .describe('Lipsync model type: "lipsync" (alias) or "ggml-lipsync" (canonical)')
+export type LipsyncModelTypeInput = z.infer<typeof lipsyncModelTypeSchema>

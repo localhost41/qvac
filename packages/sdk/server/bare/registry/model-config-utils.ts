@@ -12,6 +12,7 @@ import { bciConfigSchema } from '@/schemas/bci-config'
 import { ocrConfigSchema } from '@/schemas/ocr'
 import { sdcppConfigSchema } from '@/schemas/sdcpp-config'
 import { vlaConfigSchema } from '@/schemas/vla'
+import { lipsyncConfigSchema } from '@/schemas/lipsync'
 import { classificationConfigSchema } from '@/schemas/classification'
 
 export const CANONICAL_TO_ALIAS: Record<CanonicalModelType, string> = {
@@ -26,7 +27,8 @@ export const CANONICAL_TO_ALIAS: Record<CanonicalModelType, string> = {
   [ModelType.ggmlOcr]: 'ocr',
   [ModelType.sdcppGeneration]: 'diffusion',
   [ModelType.ggmlVla]: 'vla',
-  [ModelType.ggmlClassification]: 'classification'
+  [ModelType.ggmlClassification]: 'classification',
+  [ModelType.ggmlLipsync]: 'lipsync'
 }
 
 export const MODEL_CONFIG_SCHEMAS: Partial<Record<CanonicalModelType, ZodSchema>> = {
@@ -38,7 +40,8 @@ export const MODEL_CONFIG_SCHEMAS: Partial<Record<CanonicalModelType, ZodSchema>
   [ModelType.ggmlOcr]: ocrConfigSchema,
   [ModelType.sdcppGeneration]: sdcppConfigSchema,
   [ModelType.ggmlVla]: vlaConfigSchema,
-  [ModelType.ggmlClassification]: classificationConfigSchema
+  [ModelType.ggmlClassification]: classificationConfigSchema,
+  [ModelType.ggmlLipsync]: lipsyncConfigSchema
 }
 
 // Ordered general → specific (later patterns override earlier)

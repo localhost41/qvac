@@ -60,7 +60,8 @@ const BUILTIN_PLUGINS = [
   '@qvac/sdk/ggml-ocr/plugin',
   '@qvac/sdk/sdcpp-generation/plugin',
   '@qvac/sdk/ggml-vla/plugin',
-  '@qvac/sdk/ggml-classification/plugin'
+  '@qvac/sdk/ggml-classification/plugin',
+  '@qvac/sdk/ggml-lipsync/plugin'
 ]
 
 const BUILTIN_PLUGIN_EXPORTS: Record<string, string> = {
@@ -73,7 +74,8 @@ const BUILTIN_PLUGIN_EXPORTS: Record<string, string> = {
   'ggml-ocr': 'ocrPlugin',
   'sdcpp-generation': 'diffusionPlugin',
   'ggml-vla': 'vlaPlugin',
-  'ggml-classification': 'classificationPlugin'
+  'ggml-classification': 'classificationPlugin',
+  'ggml-lipsync': 'lipsyncPlugin'
 }
 
 const SDK_NAME = '@qvac/sdk'

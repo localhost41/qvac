@@ -1,0 +1,24 @@
+@qvac/lipsync-ggml
+Copyright 2026 Tether Operations Limited
+
+This package contains an independent ggml reimplementation of the
+LAM Audio2Expression model and converts its published weights:
+
+1. LAM_Audio2Expression (model architecture and pretrained weights)
+   https://github.com/aigc3d/LAM_Audio2Expression
+   Copyright 2024-2025 The Alibaba 3DAIGC Team Authors
+   License: Apache-2.0 (code and released weights)
+   The converted GGUF (lam-audio2exp-*.gguf) is a derived work of the
+   released checkpoint `LAM_audio2exp_streaming.tar`.
+
+2. wav2vec 2.0 base (audio encoder inside the LAM checkpoint)
+   Originally released in fairseq (https://github.com/facebookresearch/fairseq)
+   Copyright Facebook AI Research
+   License: MIT (fairseq); distributed on HuggingFace as
+   facebook/wav2vec2-base-960h. The encoder weights shipped here are the
+   fine-tuned copies embedded in the LAM checkpoint above.
+
+3. ggml (inference runtime, linked via the qvac-fabric vcpkg port)
+   https://github.com/ggml-org/ggml
+   Copyright The ggml authors
+   License: MIT

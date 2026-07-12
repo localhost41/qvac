@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QVAC Lipsync — LAM Audio2Expression on ggml</title>
+<style>
+  /* Committed single-theme: a dark kiosk stage. */
+  :root {
+    --bg: #0C1118;
+    --panel: #141C27;
+    --panel-2: #10161F;
+    --line: #223046;
+    --ink: #E9EEF5;
+    --muted: #8B95A7;
+    --accent: #26A17B;
+    --accent-soft: #1B5E4B;
+    --cream: #F3EBDD;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column; min-height: 100vh;
+  }
+  header {
+    padding: 20px 28px 14px;
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 19px; font-weight: 600; letter-spacing: 0.01em; }
+  header h1 .tag {
+    color: var(--accent); font-weight: 700;
+  }
+  .pipeline {
+    color: var(--muted); font-family: var(--mono); font-size: 12px;
+    letter-spacing: 0.02em;
+  }
+  main {
+    flex: 1; display: grid; grid-template-columns: minmax(340px, 1.4fr) minmax(280px, 1fr);
+    gap: 22px; padding: 22px 28px; max-width: 1200px; margin: 0 auto; width: 100%;
+  }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+
+  .stage {
+    background: radial-gradient(ellipse 90% 70% at 50% 38%, #17212F 0%, var(--panel-2) 75%);
+    border: 1px solid var(--line); border-radius: 14px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 18px; min-height: 430px; position: relative; overflow: hidden;
+  }
+  #avatar { width: 100%; max-width: 400px; height: auto; display: block; border-radius: 10px; }
+  .caption {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 12px 20px; text-align: center;
+    font-size: 13px; color: var(--muted); font-style: italic;
+    background: linear-gradient(transparent, rgba(12,17,24,0.9) 45%);
+  }
+
+  .side { display: flex; flex-direction: column; gap: 18px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 20px;
+  }
+  .card h2 {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--muted); margin-bottom: 14px;
+  }
+  .meter { display: grid; grid-template-columns: 132px 1fr 44px; gap: 10px; align-items: center; margin-bottom: 7px; }
+  .meter .name { font-family: var(--mono); font-size: 11.5px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meter .bar { height: 7px; border-radius: 4px; background: #1B2434; overflow: hidden; }
+  .meter .bar i {
+    display: block; height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--accent-soft), var(--accent));
+    border-radius: 4px; transition: width 60ms linear;
+  }
+  .meter .val { font-family: var(--mono); font-size: 11.5px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+
+  .transport { display: flex; align-items: center; gap: 14px; }
+  button#play {
+    width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--accent); color: #06120D; font-size: 20px;
+    display: flex; align-items: center; justify-content: center; flex: none;
+    transition: transform 80ms ease, background 120ms ease;
+  }
+  button#play:hover { background: #2FBF93; }
+  button#play:active { transform: scale(0.94); }
+  button#play:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  .scrub-wrap { flex: 1; position: relative; height: 34px; display: flex; align-items: center; }
+  #activity { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 6px; }
+  input[type=range] {
+    position: relative; width: 100%; margin: 0; -webkit-appearance: none; appearance: none;
+    background: transparent; height: 34px; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 4px; height: 34px; border-radius: 2px;
+    background: var(--ink); box-shadow: 0 0 0 1px rgba(0,0,0,0.5);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 4px; height: 34px; border: none; border-radius: 2px; background: var(--ink);
+  }
+  input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .clock { font-family: var(--mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .clock b { color: var(--ink); font-weight: 600; }
+
+  .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .facts div { font-size: 12.5px; color: var(--muted); }
+  .facts b { color: var(--ink); font-weight: 600; font-family: var(--mono); font-size: 12px; }
+
+  footer { padding: 12px 28px 20px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+  footer code { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
+  @media (prefers-reduced-motion: reduce) { .idle-motion { display: none; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="tag">QVAC</span> Lipsync Demo — LAM Audio2Expression on ggml</h1>
+  <span class="pipeline">16 kHz PCM → wav2vec2 → 52 ARKit blendshapes @ 30 fps · CPU · streamed via @qvac/sdk</span>
+</header>
+
+<main>
+  <section class="stage" aria-label="Animated portrait">
+    <canvas id="avatar" width="560" height="726"></canvas>
+    <div class="caption">“Ask not what your country can do for you — ask what you can do for your country.” — JFK, 11 s, 344 frames</div>
+  </section>
+
+  <div class="side">
+    <div class="card">
+      <h2>Playback</h2>
+      <div class="transport">
+        <button id="play" aria-label="Play or pause">▶</button>
+        <div class="scrub-wrap">
+          <canvas id="activity"></canvas>
+          <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Seek">
+        </div>
+      </div>
+      <div class="clock" style="margin-top:10px">
+        <b id="tCur">0.00</b> / <span id="tTot">0.00</span> s · frame <b id="fCur">0</b>/<span id="fTot">0</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Live blendshape coefficients</h2>
+      <div id="meters"></div>
+    </div>
+
+    <div class="card">
+      <h2>Model</h2>
+      <div class="facts">
+        <div>Architecture <br><b>lam-audio2exp</b></div>
+        <div>Parameters <br><b>102 M (F32 GGUF)</b></div>
+        <div>Parity vs PyTorch <br><b>max |Δ| 2.9e-6</b></div>
+        <div>Streaming window <br><b>64 frames / 320 ms hop</b></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Frames generated by <code>packages/sdk/examples/lipsync/lipsync-frames.ts</code> —
+  loadModel({ modelType: "lipsync" }) → bare worker → <code>@qvac/lipsync-ggml</code> native addon.
+  Raw model output; no smoothing or post-processing on the coefficients (blinks are renderer-side).
+  Portrait: official White House photo of John F. Kennedy (public domain), animated as a 2D photo
+  puppet — the production renderer targets a 3D VRM head driven by the same ARKit-52 stream.
+</footer>
+
+<script src="./data.js"></script>
+<script>
+(function () {
+  'use strict'
+  const DATA = window.LIPSYNC_DEMO_DATA
+  if (!DATA) {
+    document.querySelector('.caption').textContent = 'data.js missing — run make-demo-data.py first.'
+    return
+  }
+  // photo puppet always plays the first clip (multi-clip lives in vrm.html)
+  const CLIP = (DATA.clips && DATA.clips[0]) || DATA
+  const FPS = DATA.fps
+  const NAMES = DATA.coeffNames
+  const FRAMES = CLIP.frames
+  const N = FRAMES.length
+  const idx = {}
+  NAMES.forEach((n, i) => { idx[n] = i })
+  const get = (frame, name) => frame[idx[name]] || 0
+  const avg = (frame, a, b) => (get(frame, a) + get(frame, b)) / 2
+
+  // ---- audio ----
+  const audio = new Audio('data:audio/wav;base64,' + CLIP.audioB64)
+  const DUR = N / FPS
+
+  // ---- transport ----
+  const playBtn = document.getElementById('play')
+  const scrub = document.getElementById('scrub')
+  const tCur = document.getElementById('tCur')
+  const tTot = document.getElementById('tTot')
+  const fCur = document.getElementById('fCur')
+  const fTot = document.getElementById('fTot')
+  tTot.textContent = DUR.toFixed(2)
+  fTot.textContent = String(N)
+
+  playBtn.addEventListener('click', () => {
+    if (audio.paused) { if (audio.currentTime >= DUR - 0.05) audio.currentTime = 0; audio.play() } else { audio.pause() }
+  })
+  audio.addEventListener('play', () => { playBtn.textContent = '❚❚' })
+  audio.addEventListener('pause', () => { playBtn.textContent = '▶' })
+  let scrubbing = false
+  scrub.addEventListener('input', () => {
+    scrubbing = true
+    audio.currentTime = (scrub.value / 1000) * DUR
+  })
+  scrub.addEventListener('change', () => { scrubbing = false })
+
+  // ---- activity strip (mouth energy per frame) ----
+  const act = document.getElementById('activity')
+  function drawActivity () {
+    const w = act.clientWidth * devicePixelRatio
+    const h = act.clientHeight * devicePixelRatio
+    act.width = w; act.height = h
+    const c = act.getContext('2d')
+    c.fillStyle = '#1B2434'
+    c.fillRect(0, 0, w, h)
+    c.fillStyle = '#26A17B'
+    for (let f = 0; f < N; f++) {
+      const fr = FRAMES[f]
+      const e = Math.min(1, get(fr, 'jawOpen') * 1.2 + avg(fr, 'mouthLowerDownLeft', 'mouthLowerDownRight'))
+      const x = (f / N) * w
+      const bh = Math.max(2 * devicePixelRatio, e * h * 0.9)
+      c.globalAlpha = 0.35 + e * 0.65
+      c.fillRect(x, (h - bh) / 2, Math.max(1, w / N - 1), bh)
+    }
+    c.globalAlpha = 1
+  }
+
+  // ---- meters ----
+  const METER_NAMES = [
+    'jawOpen', 'mouthLowerDownLeft', 'mouthLowerDownRight', 'mouthShrugUpper',
+    'mouthPressLeft', 'mouthPucker', 'mouthFunnel', 'mouthSmileLeft',
+    'mouthUpperUpLeft', 'browInnerUp'
+  ]
+  const metersEl = document.getElementById('meters')
+  const meterRefs = METER_NAMES.map((name) => {
+    const row = document.createElement('div')
+    row.className = 'meter'
+    row.innerHTML = '<span class="name">' + name + '</span><span class="bar"><i></i></span><span class="val">0.00</span>'
+    metersEl.appendChild(row)
+    return { bar: row.querySelector('i'), val: row.querySelector('.val'), name }
+  })
+
+  // ---- avatar: photo puppet ----
+  // The portrait is warped per frame: the region below the lip line (lower
+  // lip + chin + jaw) is masked out and translated down by the mouth
+  // openness; a dark oral cavity is painted in the revealed gap, under the
+  // photo's own (static) upper teeth. All coordinates are in the portrait's
+  // native 560×726 pixel space.
+  const cv = document.getElementById('avatar')
+  const ctx = cv.getContext('2d')
+  const W = cv.width, H = cv.height
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  const portrait = new Image()
+  let portraitReady = false
+  portrait.onload = () => { portraitReady = true; buildJawLayer() }
+  portrait.src = 'data:image/jpeg;base64,' + DATA.portraitB64
+
+  // lip cut line: bottom edge of the upper teeth (quadratic)
+  const LIP = [[200, 366], [246, 372], [288, 355]]
+  const MAX_SHIFT = 18
+  let smoothOpen = 0
+
+  function lipPoints (n) {
+    const pts = []
+    for (let i = 0; i <= n; i++) {
+      const t = i / n
+      const [p0, p1, p2] = LIP
+      pts.push([
+        (1 - t) * (1 - t) * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0],
+        (1 - t) * (1 - t) * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1]
+      ])
+    }
+    return pts
+  }
+
+  function jawPath (c) {
+    c.beginPath()
+    c.moveTo(172, 408)
+    c.quadraticCurveTo(182, 376, 200, 366)
+    c.quadraticCurveTo(246, 372, 288, 355)
+    c.quadraticCurveTo(315, 358, 334, 396)
+    c.quadraticCurveTo(334, 452, 295, 474)
+    c.quadraticCurveTo(248, 492, 204, 474)
+    c.quadraticCurveTo(172, 448, 172, 408)
+    c.closePath()
+  }
+
+  // Pre-rendered jaw layer: the portrait masked to the jaw region, with
+  // feathered outer edges but a crisp edge along the mouth so the lower
+  // lip stays sharp.
+  const jawCv = document.createElement('canvas')
+  jawCv.width = W; jawCv.height = H
+  function buildJawLayer () {
+    const mask = document.createElement('canvas')
+    mask.width = W; mask.height = H
+    const mc = mask.getContext('2d')
+    mc.fillStyle = '#fff'
+    mc.filter = 'blur(6px)'
+    jawPath(mc); mc.fill()
+    // crisp pass limited to the mouth neighbourhood
+    mc.filter = 'none'
+    mc.save()
+    mc.beginPath(); mc.rect(190, 340, 110, 52); mc.clip()
+    jawPath(mc); mc.fill()
+    mc.restore()
+
+    const jc = jawCv.getContext('2d')
+    jc.clearRect(0, 0, W, H)
+    jc.drawImage(portrait, 0, 0, W, H)
+    jc.globalCompositeOperation = 'destination-in'
+    jc.drawImage(mask, 0, 0)
+    jc.globalCompositeOperation = 'source-over'
+  }
+
+  // Renderer-side procedural blink (the raw model barely blinks — upstream
+  // adds blinks in post-processing; here it's a renderer concern).
+  let nextBlink = 2.5
+  let blinkT = -1
+  function proceduralBlink (t, frame) {
+    const modelBlink = Math.max(get(frame, 'eyeBlinkLeft'), get(frame, 'eyeBlinkRight'))
+    if (modelBlink > 0.15) return modelBlink
+    if (t > nextBlink) { blinkT = t; nextBlink = t + 2.2 + Math.random() * 2.6 }
+    if (blinkT >= 0) {
+      const p = (t - blinkT) / 0.14
+      if (p < 1) return Math.sin(p * Math.PI)
+      blinkT = -1
+    }
+    return 0
+  }
+
+  function drawFace (frame, t) {
+    ctx.clearRect(0, 0, W, H)
+    if (!portraitReady) return
+    ctx.save()
+
+    // subtle head motion so the portrait doesn't read as frozen
+    if (!reduceMotion) {
+      ctx.translate(W / 2, H / 2)
+      ctx.rotate(Math.sin(t * 0.55) * 0.006)
+      ctx.translate(-W / 2 + Math.sin(t * 0.9) * 2, -H / 2 + Math.sin(t * 1.6) * 2)
+    }
+
+    ctx.drawImage(portrait, 0, 0, W, H)
+
+    // Openness compound, weighted by how this model actually encodes
+    // articulation (measured on speech: mouthLowerDown/jawOpen rise while
+    // voiced, mouthPress rises in silence), with the resting floor removed
+    // and an attack/release EMA standing in for the upstream
+    // Savitzky-Golay smoothing.
+    const jawOpen = get(frame, 'jawOpen')
+    const close = get(frame, 'mouthClose')
+    const lowerDown = avg(frame, 'mouthLowerDownLeft', 'mouthLowerDownRight')
+    const upperUp = avg(frame, 'mouthUpperUpLeft', 'mouthUpperUpRight')
+    const press = avg(frame, 'mouthPressLeft', 'mouthPressRight')
+    let open = 1.15 * lowerDown + 1.0 * jawOpen + 0.3 * upperUp -
+               0.6 * press - 0.8 * close
+    open = Math.max(0, Math.min(1, (open - 0.18) / 0.82))
+    smoothOpen += (open > smoothOpen ? 0.55 : 0.3) * (open - smoothOpen)
+    const shift = smoothOpen * MAX_SHIFT
+
+    // oral cavity in the revealed gap, under the static upper teeth;
+    // depth is centre-weighted so the corners barely part
+    const pts = lipPoints(24)
+    const depthAt = (i) => {
+      const u = i / (pts.length - 1)
+      return 0.22 + 0.78 * (4 * u * (1 - u))
+    }
+    if (shift > 0.4) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.moveTo(pts[0][0], pts[0][1])
+      for (const [x, y] of pts) ctx.lineTo(x, y)
+      for (let i = pts.length - 1; i >= 0; i--) {
+        ctx.lineTo(pts[i][0], pts[i][1] + (shift + 6) * depthAt(i))
+      }
+      ctx.closePath()
+      ctx.filter = 'blur(1.2px)'
+      ctx.fillStyle = '#28100D'
+      ctx.fill()
+      ctx.restore()
+    }
+
+    // lower lip + chin + jaw, translated down
+    ctx.drawImage(jawCv, 0, shift)
+
+    // soft contact shadow where the cavity meets the moved lower lip
+    if (shift > 2) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.moveTo(pts[0][0], pts[0][1] + shift * depthAt(0) + 2)
+      for (let i = 0; i < pts.length; i++) {
+        ctx.lineTo(pts[i][0], pts[i][1] + shift * depthAt(i) + 2)
+      }
+      for (let i = pts.length - 1; i >= 0; i--) {
+        ctx.lineTo(pts[i][0], pts[i][1] + shift * depthAt(i) + 9)
+      }
+      ctx.closePath()
+      ctx.filter = 'blur(3px)'
+      ctx.fillStyle = 'rgba(30,10,10,0.25)'
+      ctx.fill()
+      ctx.restore()
+    }
+
+    // blinks: feathered eyelid overlays (renderer-side, like upstream)
+    const blink = proceduralBlink(t, frame)
+    if (blink > 0.03) {
+      for (const [ex, ey, rx, ry] of [[177, 262, 27, 13], [257, 252, 25, 12]]) {
+        const g = ctx.createRadialGradient(ex, ey, 2, ex, ey, rx)
+        g.addColorStop(0, 'rgba(186,128,102,' + (0.9 * blink).toFixed(3) + ')')
+        g.addColorStop(0.75, 'rgba(186,128,102,' + (0.75 * blink).toFixed(3) + ')')
+        g.addColorStop(1, 'rgba(186,128,102,0)')
+        ctx.fillStyle = g
+        ctx.beginPath()
+        ctx.ellipse(ex, ey, rx, ry + blink * 3, -0.12, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+    ctx.restore()
+  }
+
+  // ---- render loop ----
+  function frameAt (time) {
+    return FRAMES[Math.max(0, Math.min(N - 1, Math.floor(time * FPS)))]
+  }
+  let clockStart = performance.now()
+  function tick () {
+    const t = (performance.now() - clockStart) / 1000
+    const time = audio.paused && !scrubbing ? audio.currentTime : audio.currentTime
+    const fr = frameAt(time)
+    drawFace(fr, t)
+    const fi = Math.min(N - 1, Math.floor(time * FPS))
+    tCur.textContent = time.toFixed(2)
+    fCur.textContent = String(fi)
+    if (!scrubbing) scrub.value = String(Math.round((time / DUR) * 1000))
+    for (const m of meterRefs) {
+      const v = get(fr, m.name)
+      m.bar.style.width = (v * 100).toFixed(1) + '%'
+      m.val.textContent = v.toFixed(2)
+    }
+    requestAnimationFrame(tick)
+  }
+
+  drawActivity()
+  addEventListener('resize', drawActivity)
+  drawFace(FRAMES[0], 0)
+  requestAnimationFrame(tick)
+})()
+</script>
+</body>
+</html>

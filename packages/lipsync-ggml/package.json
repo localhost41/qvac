@@ -1,0 +1,69 @@
+{
+  "name": "@qvac/lipsync-ggml",
+  "version": "0.1.0",
+  "description": "Audio-to-blendshape lipsync inference addon for QVAC (LAM Audio2Expression on ggml)",
+  "addon": true,
+  "engines": {
+    "bare": ">=1.24.0"
+  },
+  "scripts": {
+    "build": "bare-make generate && bare-make build && bare-make install",
+    "build:pack": "mkdir -p dist && npm pack --pack-destination dist",
+    "lint": "standard",
+    "lint:fix": "standard --fix",
+    "lint:cpp": "clang-tidy -p build $(find addon -name '*.cpp')",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:integration": "npm run test:integration:generate && bare test/integration/all.js --exit",
+    "test:integration:generate": "brittle -r test/integration/all.js test/integration/*.test.js",
+    "test:unit:generate": "brittle -r test/unit/all.js test/unit/*.test.js",
+    "test:unit": "npm run test:unit:generate && bare test/unit/all.js --exit"
+  },
+  "files": [
+    "addon.js",
+    "binding.js",
+    "index.js",
+    "index.d.ts",
+    "lib",
+    "prebuilds",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tetherto/qvac.git",
+    "directory": "packages/lipsync-ggml"
+  },
+  "author": "Tether",
+  "license": "Apache-2.0",
+  "bugs": "https://github.com/tetherto/qvac/issues",
+  "homepage": "https://qvac.tether.io",
+  "dependencies": {
+    "@qvac/error": "^0.1.0",
+    "@qvac/infer-base": "^0.4.0",
+    "@qvac/logging": "^0.1.0",
+    "bare-fs": "^4.5.1",
+    "bare-path": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "brittle": "^3.16.5",
+    "cmake-bare": "^1.7.5",
+    "cmake-vcpkg": "^1.1.0",
+    "standard": "^17.0.0",
+    "typescript": "^5.9.2"
+  },
+  "standard": {
+    "ignore": [
+      "examples/demo/data.js"
+    ]
+  },
+  "exports": {
+    "./package": "./package.json",
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "main": "index.js",
+  "types": "index.d.ts"
+}

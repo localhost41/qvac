@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QVAC Lipsync — Photorealistic Avatar (LAM Gaussian Head)</title>
+<style>
+  /* Committed single-theme: a dark kiosk stage (matches vrm.html). */
+  :root {
+    --bg: #0C1118;
+    --panel: #141C27;
+    --panel-2: #10161F;
+    --line: #223046;
+    --ink: #E9EEF5;
+    --muted: #8B95A7;
+    --accent: #26A17B;
+    --accent-soft: #1B5E4B;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column; min-height: 100vh;
+  }
+  header {
+    padding: 20px 28px 14px;
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 19px; font-weight: 600; letter-spacing: 0.01em; }
+  header h1 .tag { color: var(--accent); font-weight: 700; }
+  .pipeline {
+    color: var(--muted); font-family: var(--mono); font-size: 12px;
+    letter-spacing: 0.02em;
+  }
+  main {
+    flex: 1; display: grid; grid-template-columns: minmax(340px, 1.4fr) minmax(280px, 1fr);
+    gap: 22px; padding: 22px 28px; max-width: 1200px; margin: 0 auto; width: 100%;
+  }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+
+  .stage {
+    background: radial-gradient(ellipse 90% 70% at 50% 38%, #17212F 0%, var(--panel-2) 75%);
+    border: 1px solid var(--line); border-radius: 14px;
+    display: flex; align-items: stretch; justify-content: center;
+    min-height: 480px; position: relative; overflow: hidden;
+  }
+  #stage3d { width: 100%; height: 100%; position: absolute; inset: 0; }
+  #stage3d canvas { width: 100% !important; height: 100% !important; display: block; }
+  .caption {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 12px 20px; text-align: center;
+    font-size: 13px; color: var(--muted); font-style: italic;
+    background: linear-gradient(transparent, rgba(12,17,24,0.9) 45%);
+    pointer-events: none;
+  }
+  .loading {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; color: var(--muted); font-family: var(--mono);
+    font-size: 13px;
+  }
+  .state-chip {
+    position: absolute; top: 14px; right: 14px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+    padding: 4px 10px; border-radius: 20px;
+    border: 1px solid var(--line); color: var(--muted);
+    background: rgba(12,17,24,0.65); pointer-events: none;
+  }
+  .state-chip.live { border-color: var(--accent); color: var(--accent); }
+
+  .side { display: flex; flex-direction: column; gap: 18px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 20px;
+  }
+  .card h2 {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--muted); margin-bottom: 14px;
+  }
+  .meter { display: grid; grid-template-columns: 132px 1fr 44px; gap: 10px; align-items: center; margin-bottom: 7px; }
+  .meter .name { font-family: var(--mono); font-size: 11.5px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meter .bar { height: 7px; border-radius: 4px; background: #1B2434; overflow: hidden; }
+  .meter .bar i {
+    display: block; height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--accent-soft), var(--accent));
+    border-radius: 4px; transition: width 60ms linear;
+  }
+  .meter .val { font-family: var(--mono); font-size: 11.5px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+
+  .transport { display: flex; align-items: center; gap: 14px; }
+  button#play {
+    width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--accent); color: #06120D; font-size: 20px;
+    display: flex; align-items: center; justify-content: center; flex: none;
+    transition: transform 80ms ease, background 120ms ease;
+  }
+  button#play:hover { background: #2FBF93; }
+  button#play:active { transform: scale(0.94); }
+  button#play:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  .scrub-wrap { flex: 1; position: relative; height: 34px; display: flex; align-items: center; }
+  #activity { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 6px; }
+  input[type=range] {
+    position: relative; width: 100%; margin: 0; -webkit-appearance: none; appearance: none;
+    background: transparent; height: 34px; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 4px; height: 34px; border-radius: 2px;
+    background: var(--ink); box-shadow: 0 0 0 1px rgba(0,0,0,0.5);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 4px; height: 34px; border: none; border-radius: 2px; background: var(--ink);
+  }
+  input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .clock { font-family: var(--mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .clock b { color: var(--ink); font-weight: 600; }
+  select#clipSel {
+    width: 100%; padding: 8px 10px; border-radius: 8px;
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    font: 13px/1.3 inherit; cursor: pointer;
+  }
+  select#clipSel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  footer { padding: 12px 28px 20px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+  footer code { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="tag">QVAC</span> Lipsync — Photorealistic Avatar</h1>
+  <span class="pipeline">16 kHz PCM → wav2vec2 → 52 ARKit blendshapes @ 30 fps → LAM Gaussian head · ggml CPU · @qvac/sdk</span>
+</header>
+
+<main>
+  <section class="stage" aria-label="3D avatar">
+    <div id="stage3d"></div>
+    <div class="loading" id="loading">loading avatar…</div>
+    <div class="state-chip" id="stateChip">IDLE</div>
+    <div class="caption" id="caption"></div>
+  </section>
+
+  <div class="side">
+    <div class="card">
+      <h2>Playback</h2>
+      <div style="margin-bottom:12px">
+        <select id="clipSel" aria-label="Clip"></select>
+      </div>
+      <div class="transport">
+        <button id="play" aria-label="Play or pause">▶</button>
+        <div class="scrub-wrap">
+          <canvas id="activity"></canvas>
+          <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Seek">
+        </div>
+      </div>
+      <div class="clock" style="margin-top:10px">
+        <b id="tCur">0.00</b> / <span id="tTot">0.00</span> s · frame <b id="fCur">0</b>/<span id="fTot">0</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Live blendshape coefficients</h2>
+      <div id="meters"></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Coefficients from <code>@qvac/lipsync-ggml</code> via the SDK (<code>lipsyncStream</code>), fed
+  directly — all 52 ARKit channels — into a 3D-Gaussian-splat head reconstructed from a single
+  photo by <code>LAM</code> (aigc3d, SIGGRAPH 2025). Renderer:
+  <code>gaussian-splat-renderer-for-lam</code> (MIT); sample avatar asset from the
+  <code>LAM_WebRender</code> repository. Body gestures come from the asset's bundled animation
+  clips, switched by chat state (idle/responding).
+</footer>
+
+<script src="./data.js"></script>
+<script type="module">
+import { GaussianSplatRenderer } from './lam-render-libs.js'
+
+// Surface any runtime failure into the stage instead of a silent hang.
+const showFatal = (msg) => {
+  const el = document.getElementById('loading')
+  if (el) { el.style.display = 'flex'; el.textContent = String(msg) }
+}
+window.addEventListener('error', (e) => showFatal('error: ' + (e.message || e)))
+window.addEventListener('unhandledrejection', (e) =>
+  showFatal('error: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)))
+
+const DATA = window.LIPSYNC_DEMO_DATA
+const FPS = DATA.fps
+const NAMES = DATA.coeffNames
+const CLIPS = DATA.clips ||
+  [{ name: 'clip', frames: DATA.frames, audioB64: DATA.audioB64 }]
+
+const params = new URLSearchParams(location.search)
+let clipIndex = Math.max(0, Math.min(CLIPS.length - 1, Number(params.get('clip') || 0)))
+let FRAMES = CLIPS[clipIndex].frames
+let N = FRAMES.length
+let DUR = N / FPS
+
+const idx = {}
+NAMES.forEach((n, i) => { idx[n] = i })
+const get = (frame, name) => frame[idx[name]] || 0
+
+// ?frame=N pins a specific frame — used for static/headless inspection
+const pinnedFrame = params.get('frame')
+function frameAt (time) {
+  if (pinnedFrame !== null) {
+    return FRAMES[Math.max(0, Math.min(N - 1, Number(pinnedFrame)))]
+  }
+  return FRAMES[Math.max(0, Math.min(N - 1, Math.floor(time * FPS)))]
+}
+
+let media = new Audio('data:audio/wav;base64,' + CLIPS[clipIndex].audioB64)
+window.__media = media // capture-harness hook (media is module-scoped)
+
+// ---- transport (same as the VRM demo) ----
+const playBtn = document.getElementById('play')
+const scrub = document.getElementById('scrub')
+const tCur = document.getElementById('tCur')
+const tTot = document.getElementById('tTot')
+const fCur = document.getElementById('fCur')
+const fTot = document.getElementById('fTot')
+tTot.textContent = DUR.toFixed(2)
+fTot.textContent = String(N)
+playBtn.addEventListener('click', () => {
+  if (media.paused) { if (media.currentTime >= DUR - 0.05) media.currentTime = 0; media.play() } else { media.pause() }
+})
+let scrubbing = false
+scrub.addEventListener('input', () => { scrubbing = true; media.currentTime = (scrub.value / 1000) * DUR })
+scrub.addEventListener('change', () => { scrubbing = false })
+media.addEventListener('play', () => { playBtn.textContent = '❚❚' })
+media.addEventListener('pause', () => { playBtn.textContent = '▶' })
+
+// ---- clip selection ----
+const AVATAR_CREDIT = (() => {
+  const a = params.get('avatar') || 'avatar-lam.zip'
+  if (/james|barbara|vfhq/.test(a)) {
+    return ' · avatar: LAM sample “' + a.replace('.zip', '') + '” (HumanAIGC-Engineering/OpenAvatarChat)'
+  }
+  if (a === 'avatar-lam.zip') {
+    return ' · avatar: LAM sample “p2-1” (aigc3d/LAM_WebRender, MIT)'
+  }
+  return ' · avatar: LAM one-shot reconstruction from a single photo (aigc3d/LAM)'
+})()
+function setCaption (i) {
+  const name = CLIPS[i].name
+  document.getElementById('caption').textContent = /jfk/i.test(name)
+    ? '“Ask not what your country can do for you…” — JFK' + AVATAR_CREDIT
+    : '“' + name + '” — synthesized on-device by QVAC TTS (Supertonic)' + AVATAR_CREDIT
+}
+function loadClip (i) {
+  clipIndex = i
+  FRAMES = CLIPS[i].frames
+  N = FRAMES.length
+  DUR = N / FPS
+  tTot.textContent = DUR.toFixed(2)
+  fTot.textContent = String(N)
+  scrub.value = '0'
+  media.pause()
+  media.src = 'data:audio/wav;base64,' + CLIPS[i].audioB64
+  media.currentTime = 0
+  setCaption(i)
+  drawActivity()
+}
+const clipSel = document.getElementById('clipSel')
+CLIPS.forEach((c, i) => {
+  const o = document.createElement('option')
+  o.value = String(i)
+  o.textContent = c.name
+  clipSel.appendChild(o)
+})
+clipSel.value = String(clipIndex)
+clipSel.parentElement.style.display = CLIPS.length > 1 ? '' : 'none'
+clipSel.addEventListener('change', () => loadClip(Number(clipSel.value)))
+setCaption(clipIndex)
+
+const act = document.getElementById('activity')
+function drawActivity () {
+  const w = act.clientWidth * devicePixelRatio
+  const h = act.clientHeight * devicePixelRatio
+  act.width = w; act.height = h
+  const c = act.getContext('2d')
+  c.fillStyle = '#1B2434'; c.fillRect(0, 0, w, h)
+  c.fillStyle = '#26A17B'
+  for (let f = 0; f < N; f++) {
+    const fr = FRAMES[f]
+    const e = Math.min(1, get(fr, 'jawOpen') * 1.2 +
+      (get(fr, 'mouthLowerDownLeft') + get(fr, 'mouthLowerDownRight')) / 2)
+    const x = (f / N) * w
+    const bh = Math.max(2 * devicePixelRatio, e * h * 0.9)
+    c.globalAlpha = 0.35 + e * 0.65
+    c.fillRect(x, (h - bh) / 2, Math.max(1, w / N - 1), bh)
+  }
+  c.globalAlpha = 1
+}
+
+// ---- meters ----
+const METER_NAMES = [
+  'jawOpen', 'mouthLowerDownLeft', 'mouthShrugUpper', 'mouthPressLeft',
+  'mouthPucker', 'mouthFunnel', 'mouthSmileLeft', 'browInnerUp'
+]
+const metersEl = document.getElementById('meters')
+const meterRefs = METER_NAMES.map((name) => {
+  const row = document.createElement('div')
+  row.className = 'meter'
+  row.innerHTML = '<span class="name">' + name + '</span><span class="bar"><i></i></span><span class="val">0.00</span>'
+  metersEl.appendChild(row)
+  return { bar: row.querySelector('i'), val: row.querySelector('.val'), name }
+})
+
+// ---- expression feed for the splat renderer ----
+// The renderer polls getExpressionData() once per rendered frame and expects
+// a {arkitName: weight} map; per-avatar calibration (offset/scale) is applied
+// inside the renderer from the asset's motion config. We pass the raw model
+// coefficients through a light attack/release EMA (stand-in for upstream's
+// post smoothing) and inject procedural blinks, since the model rarely emits
+// eyeBlink on its own.
+const smoothed = new Float64Array(NAMES.length)
+let lastPollMs = 0
+let nextBlink = 2.5
+let blinkT = -1
+function proceduralBlink (t, frame) {
+  const modelBlink = Math.max(get(frame, 'eyeBlinkLeft'), get(frame, 'eyeBlinkRight'))
+  if (modelBlink > 0.15) return modelBlink
+  if (t > nextBlink) { blinkT = t; nextBlink = t + 2.2 + Math.random() * 2.6 }
+  if (blinkT >= 0) {
+    const p = (t - blinkT) / 0.14
+    if (p < 1) return Math.sin(p * Math.PI)
+    blinkT = -1
+  }
+  return 0
+}
+// ?tune=name:mul,name:mul scales individual channels before the renderer
+// (e.g. tune=mouthShrugUpper:0.4 to tame upper-teeth over-exposure).
+const TUNE = {}
+for (const kv of (params.get('tune') || '').split(',')) {
+  const [k, v] = kv.split(':')
+  if (k && v !== undefined && !Number.isNaN(Number(v))) TUNE[k] = Number(v)
+}
+// Procedural gaze: small conjugate saccades every few seconds (the model
+// never drives eye channels — like blinks, gaze is a renderer-side layer).
+// Disable with ?gaze=0.
+const GAZE_ON = params.get('gaze') !== '0'
+const gaze = { x: 0, y: 0, tx: 0, ty: 0, next: 3 }
+function updateGaze (t, dt) {
+  if (t > gaze.next) {
+    // mostly small darts near center, occasionally return to center
+    if (Math.random() < 0.35) { gaze.tx = 0; gaze.ty = 0 } else {
+      gaze.tx = (Math.random() * 2 - 1) * 0.30
+      gaze.ty = (Math.random() * 2 - 1) * 0.12
+    }
+    gaze.next = t + 1.6 + Math.random() * 2.8
+  }
+  // saccades are fast: ~50 ms time constant
+  const k = 1 - Math.exp(-dt / 0.05)
+  gaze.x += (gaze.tx - gaze.x) * k
+  gaze.y += (gaze.ty - gaze.y) * k
+}
+function applyGaze (e) {
+  const x = gaze.x; const y = gaze.y
+  e.eyeLookInLeft = Math.max(e.eyeLookInLeft, Math.max(0, x))
+  e.eyeLookOutRight = Math.max(e.eyeLookOutRight, Math.max(0, x))
+  e.eyeLookOutLeft = Math.max(e.eyeLookOutLeft, Math.max(0, -x))
+  e.eyeLookInRight = Math.max(e.eyeLookInRight, Math.max(0, -x))
+  e.eyeLookUpLeft = Math.max(e.eyeLookUpLeft, Math.max(0, y))
+  e.eyeLookUpRight = Math.max(e.eyeLookUpRight, Math.max(0, y))
+  e.eyeLookDownLeft = Math.max(e.eyeLookDownLeft, Math.max(0, -y))
+  e.eyeLookDownRight = Math.max(e.eyeLookDownRight, Math.max(0, -y))
+}
+const expression = {}
+function getExpressionData () {
+  const nowMs = performance.now()
+  const dt = lastPollMs ? Math.min(0.1, (nowMs - lastPollMs) / 1000) : 1 / 60
+  lastPollMs = nowMs
+  const fr = frameAt(media.currentTime)
+  for (let i = 0; i < NAMES.length; i++) {
+    const target = fr[i] || 0
+    // time-constant EMA: fast attack (~40 ms), slower release (~90 ms)
+    const tau = target > smoothed[i] ? 0.04 : 0.09
+    smoothed[i] += (1 - Math.exp(-dt / tau)) * (target - smoothed[i])
+    expression[NAMES[i]] = smoothed[i] * (TUNE[NAMES[i]] !== undefined ? TUNE[NAMES[i]] : 1)
+  }
+  const blink = proceduralBlink(nowMs / 1000, fr)
+  expression.eyeBlinkLeft = Math.max(expression.eyeBlinkLeft, blink)
+  expression.eyeBlinkRight = Math.max(expression.eyeBlinkRight, blink)
+  if (GAZE_ON) {
+    updateGaze(nowMs / 1000, dt)
+    applyGaze(expression)
+  }
+  return expression
+}
+
+// Chat state drives the asset's bundled body-gesture clips.
+const stateChip = document.getElementById('stateChip')
+function getChatState () {
+  return media.paused ? 'Idle' : 'Responding'
+}
+
+// ---- UI loop (meters/scrub run off the audio clock, like vrm.html) ----
+let applyCamera = null
+function tick () {
+  requestAnimationFrame(tick)
+  if (applyCamera) applyCamera()
+  const time = media.currentTime
+  const fr = frameAt(time)
+  const fi = Math.min(N - 1, Math.floor(time * FPS))
+  tCur.textContent = time.toFixed(2)
+  fCur.textContent = String(fi)
+  if (!scrubbing) scrub.value = String(Math.round((time / DUR) * 1000))
+  for (const m of meterRefs) {
+    const v = get(fr, m.name)
+    m.bar.style.width = (v * 100).toFixed(1) + '%'
+    m.val.textContent = v.toFixed(2)
+  }
+  const live = !media.paused
+  stateChip.textContent = live ? 'RESPONDING' : 'IDLE'
+  stateChip.classList.toggle('live', live)
+}
+
+// ---- splat renderer ----
+const container = document.getElementById('stage3d')
+GaussianSplatRenderer.getInstance(container, './' + (params.get('avatar') || 'avatar-lam.zip'), {
+  getChatState,
+  getExpressionData,
+  backgroundColor: '0x10161F',
+  alpha: 1,
+  loadProgress: (p) => {
+    const el = document.getElementById('loading')
+    if (p >= 1) { el.style.display = 'none'; document.title += ' — READY' } else { el.textContent = 'loading avatar… ' + Math.round(p * 100) + '%' }
+  }
+}).then((r) => {
+  // The asset's splat cloud sits at head height around (0, 1.65, 0) after
+  // skinning, but the renderer's built-in default camera (y=1.8, z=1,
+  // pitched -10°) misses it. Frame the bust explicitly — and keep applying it
+  // from the tick loop, because getInstance() resolves before the splat scene
+  // finishes loading and the viewer settles. ?cam=px,py,pz,tx,ty,tz overrides.
+  const spec = (params.get('cam') || '0,1.66,0.62,0,1.62,0').split(',').map(Number)
+  applyCamera = () => {
+    const cam = r.getCamera()
+    if (!cam) return
+    cam.position.set(spec[0], spec[1], spec[2])
+    cam.lookAt(spec[3], spec[4], spec[5])
+    cam.updateMatrixWorld(true)
+  }
+  drawActivity()
+  addEventListener('resize', drawActivity)
+  tick()
+  // ?autoplay=1 starts playback shortly after the avatar is READY — used for
+  // unattended captures (pair with --autoplay-policy=no-user-gesture-required).
+  if (params.get('autoplay')) {
+    const poll = setInterval(() => {
+      if (document.title.includes('READY')) {
+        clearInterval(poll)
+        setTimeout(() => media.play(), 2500)
+      }
+    }, 100)
+  }
+}).catch((e) => showFatal('renderer failed: ' + (e && e.message ? e.message : e)))
+</script>
+</body>
+</html>

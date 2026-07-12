@@ -36,6 +36,7 @@ import {
   diffusionModelTypeSchema,
   vlaModelTypeSchema,
   classificationModelTypeSchema,
+  lipsyncModelTypeSchema,
   ModelType,
   ModelTypeAliases,
   normalizeModelType,
@@ -44,6 +45,7 @@ import {
 } from './model-types'
 import { sdcppConfigSchema } from './sdcpp-config'
 import { vlaConfigSchema } from './vla'
+import { lipsyncConfigSchema } from './lipsync'
 import { classificationConfigSchema } from './classification'
 
 // Set of all built-in model types (canonical + aliases) for catch-all exclusion
@@ -200,6 +202,13 @@ export const loadBuiltinModelOptionsBaseSchema = z.union([
       ...loadModelCommonFields,
       modelType: vlaModelTypeSchema,
       modelConfig: vlaConfigSchema.strict().optional()
+    })
+    .strict(),
+  z
+    .object({
+      ...loadModelCommonFields,
+      modelType: lipsyncModelTypeSchema,
+      modelConfig: lipsyncConfigSchema.strict().optional()
     })
     .strict(),
   z
@@ -424,6 +433,24 @@ export const loadBuiltinToRequestSchema = z.discriminatedUnion('modelType', [
   z
     .object({
       ...loadModelRequestCommonFields,
+      modelType: lipsyncModelTypeSchema,
+      modelConfig: lipsyncConfigSchema.strict().optional()
+    })
+    .strict()
+    .transform((data) => ({
+      type: 'loadModel' as const,
+      modelType: ModelType.ggmlLipsync,
+      modelSrc: modelInputToSrcSchema.parse(data.modelSrc),
+      modelName: modelInputToNameSchema.parse(data.modelSrc),
+      modelConfig: data.modelConfig ?? {},
+      seed: data.seed ?? false,
+      withProgress: data.withProgress ?? !!data.onProgress,
+      delegate: data.delegate,
+      ...(data.requestId !== undefined && { requestId: data.requestId })
+    })),
+  z
+    .object({
+      ...loadModelRequestCommonFields,
       modelSrc: modelSrcInputSchema.optional(),
       modelType: classificationModelTypeSchema,
       modelConfig: classificationConfigSchema.strict().optional()
@@ -567,6 +594,13 @@ export const loadClassificationModelRequestSchema = commonModelConfigSchema
   })
   .strict()
 
+export const loadLipsyncModelRequestSchema = commonModelConfigSchema
+  .extend({
+    modelType: z.literal(ModelType.ggmlLipsync),
+    modelConfig: lipsyncConfigSchema.optional()
+  })
+  .strict()
+
 // Custom plugin catch-all: accepts any modelType string EXCEPT built-ins
 export const loadCustomPluginModelRequestSchema = commonModelConfigSchema.extend({
   modelType: z.string().refine((val) => !builtInModelTypes.has(val), {
@@ -589,6 +623,7 @@ export const loadModelSrcRequestSchema = z
     loadDiffusionModelRequestSchema,
     loadVlaModelRequestSchema,
     loadClassificationModelRequestSchema,
+    loadLipsyncModelRequestSchema,
     loadCustomPluginModelRequestSchema
   ])
   .transform((data) => ({

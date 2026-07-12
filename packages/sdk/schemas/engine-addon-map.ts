@@ -4,6 +4,7 @@ import {
   ADDON_CLASSIFICATION,
   ADDON_DIFFUSION,
   ADDON_EMBEDDING,
+  ADDON_LIPSYNC,
   ADDON_LLM,
   ADDON_NMT,
   ADDON_OCR,
@@ -33,6 +34,7 @@ export const ENGINE_TO_ADDON = {
   [ModelType.sdcppGeneration]: 'diffusion',
   [ModelType.ggmlVla]: 'vla',
   [ModelType.ggmlClassification]: 'classification',
+  [ModelType.ggmlLipsync]: 'lipsync',
   'onnx-vad': 'vad'
 } as const satisfies Record<ModelRegistryEngine, ModelRegistryEntryAddon>
 
@@ -69,7 +71,9 @@ const LEGACY_ENGINE_TO_CANONICAL: Record<string, ModelRegistryEngine> = {
   [ADDON_VLA]: ModelType.ggmlVla,
   vla: ModelType.ggmlVla,
   [ADDON_CLASSIFICATION]: ModelType.ggmlClassification,
-  classification: ModelType.ggmlClassification
+  classification: ModelType.ggmlClassification,
+  [ADDON_LIPSYNC]: ModelType.ggmlLipsync,
+  lipsync: ModelType.ggmlLipsync
 }
 
 // Resolves any engine string (legacy or canonical) to a validated canonical engine.

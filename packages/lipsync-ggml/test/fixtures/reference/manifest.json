@@ -1,0 +1,422 @@
+{
+  "cases": [
+    {
+      "case": "win64",
+      "num_samples": 34133,
+      "time_steps": 64,
+      "id_idx": 0,
+      "tensors": {
+        "fe_out": {
+          "file": "win64_fe_out.bin",
+          "shape": [
+            512,
+            106
+          ]
+        },
+        "interp_out": {
+          "file": "win64_interp_out.bin",
+          "shape": [
+            64,
+            512
+          ]
+        },
+        "fp_out": {
+          "file": "win64_fp_out.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "pos_conv_out": {
+          "file": "win64_pos_conv_out.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "enc_pre_ln": {
+          "file": "win64_enc_pre_ln.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "enc_layer_0": {
+          "file": "win64_enc_layer_0.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "enc_layer_1": {
+          "file": "win64_enc_layer_1.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "enc_layer_2": {
+          "file": "win64_enc_layer_2.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "enc_layer_3": {
+          "file": "win64_enc_layer_3.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "enc_layer_4": {
+          "file": "win64_enc_layer_4.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "enc_layer_5": {
+          "file": "win64_enc_layer_5.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "enc_layer_6": {
+          "file": "win64_enc_layer_6.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "enc_layer_7": {
+          "file": "win64_enc_layer_7.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "enc_layer_8": {
+          "file": "win64_enc_layer_8.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "enc_layer_9": {
+          "file": "win64_enc_layer_9.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "enc_layer_10": {
+          "file": "win64_enc_layer_10.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "enc_layer_11": {
+          "file": "win64_enc_layer_11.bin",
+          "shape": [
+            64,
+            768
+          ]
+        },
+        "lam_proj": {
+          "file": "win64_lam_proj.bin",
+          "shape": [
+            512,
+            64
+          ]
+        },
+        "ident_cnr_0": {
+          "file": "win64_ident_cnr_0.bin",
+          "shape": [
+            512,
+            64
+          ]
+        },
+        "ident_cnr_1": {
+          "file": "win64_ident_cnr_1.bin",
+          "shape": [
+            512,
+            64
+          ]
+        },
+        "ident_cnr_2": {
+          "file": "win64_ident_cnr_2.bin",
+          "shape": [
+            512,
+            64
+          ]
+        },
+        "ident_out": {
+          "file": "win64_ident_out.bin",
+          "shape": [
+            512,
+            64
+          ]
+        },
+        "dec_cnr_0": {
+          "file": "win64_dec_cnr_0.bin",
+          "shape": [
+            512,
+            64
+          ]
+        },
+        "dec_cnr_1": {
+          "file": "win64_dec_cnr_1.bin",
+          "shape": [
+            512,
+            64
+          ]
+        },
+        "dec_cnr_2": {
+          "file": "win64_dec_cnr_2.bin",
+          "shape": [
+            512,
+            64
+          ]
+        },
+        "expr_logits": {
+          "file": "win64_expr_logits.bin",
+          "shape": [
+            64,
+            52
+          ]
+        },
+        "input_pcm": {
+          "file": "win64_input_pcm.bin",
+          "shape": [
+            34133
+          ]
+        },
+        "id_onehot": {
+          "file": "win64_id_onehot.bin",
+          "shape": [
+            12
+          ]
+        },
+        "expr": {
+          "file": "win64_expr.bin",
+          "shape": [
+            64,
+            52
+          ]
+        }
+      }
+    },
+    {
+      "case": "sec2",
+      "num_samples": 32000,
+      "time_steps": 60,
+      "id_idx": 0,
+      "tensors": {
+        "fe_out": {
+          "file": "sec2_fe_out.bin",
+          "shape": [
+            512,
+            99
+          ]
+        },
+        "interp_out": {
+          "file": "sec2_interp_out.bin",
+          "shape": [
+            60,
+            512
+          ]
+        },
+        "fp_out": {
+          "file": "sec2_fp_out.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "pos_conv_out": {
+          "file": "sec2_pos_conv_out.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "enc_pre_ln": {
+          "file": "sec2_enc_pre_ln.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "enc_layer_0": {
+          "file": "sec2_enc_layer_0.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "enc_layer_1": {
+          "file": "sec2_enc_layer_1.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "enc_layer_2": {
+          "file": "sec2_enc_layer_2.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "enc_layer_3": {
+          "file": "sec2_enc_layer_3.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "enc_layer_4": {
+          "file": "sec2_enc_layer_4.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "enc_layer_5": {
+          "file": "sec2_enc_layer_5.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "enc_layer_6": {
+          "file": "sec2_enc_layer_6.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "enc_layer_7": {
+          "file": "sec2_enc_layer_7.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "enc_layer_8": {
+          "file": "sec2_enc_layer_8.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "enc_layer_9": {
+          "file": "sec2_enc_layer_9.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "enc_layer_10": {
+          "file": "sec2_enc_layer_10.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "enc_layer_11": {
+          "file": "sec2_enc_layer_11.bin",
+          "shape": [
+            60,
+            768
+          ]
+        },
+        "lam_proj": {
+          "file": "sec2_lam_proj.bin",
+          "shape": [
+            512,
+            60
+          ]
+        },
+        "ident_cnr_0": {
+          "file": "sec2_ident_cnr_0.bin",
+          "shape": [
+            512,
+            60
+          ]
+        },
+        "ident_cnr_1": {
+          "file": "sec2_ident_cnr_1.bin",
+          "shape": [
+            512,
+            60
+          ]
+        },
+        "ident_cnr_2": {
+          "file": "sec2_ident_cnr_2.bin",
+          "shape": [
+            512,
+            60
+          ]
+        },
+        "ident_out": {
+          "file": "sec2_ident_out.bin",
+          "shape": [
+            512,
+            60
+          ]
+        },
+        "dec_cnr_0": {
+          "file": "sec2_dec_cnr_0.bin",
+          "shape": [
+            512,
+            60
+          ]
+        },
+        "dec_cnr_1": {
+          "file": "sec2_dec_cnr_1.bin",
+          "shape": [
+            512,
+            60
+          ]
+        },
+        "dec_cnr_2": {
+          "file": "sec2_dec_cnr_2.bin",
+          "shape": [
+            512,
+            60
+          ]
+        },
+        "expr_logits": {
+          "file": "sec2_expr_logits.bin",
+          "shape": [
+            60,
+            52
+          ]
+        },
+        "input_pcm": {
+          "file": "sec2_input_pcm.bin",
+          "shape": [
+            32000
+          ]
+        },
+        "id_onehot": {
+          "file": "sec2_id_onehot.bin",
+          "shape": [
+            12
+          ]
+        },
+        "expr": {
+          "file": "sec2_expr.bin",
+          "shape": [
+            60,
+            52
+          ]
+        }
+      }
+    }
+  ]
+}
