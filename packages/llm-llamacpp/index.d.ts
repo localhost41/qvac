@@ -341,6 +341,15 @@ export interface RuntimeStats {
    */
   avgConcurrentSeq: number
   backendDevice: 'cpu' | 'gpu'
+  /** Pure mmproj/ViT encode time for the most recent single-request vision inference. */
+  visionEncodeMs?: number
+  /** Number of image slices encoded for the most recent single-request vision inference. */
+  visionEncodeTiles?: number
+  /**
+   * Optional structured Vulkan timing report for the most recent vision graph.
+   * Present only when the qvac-fabric force-profiler feature is enabled.
+   */
+  visionProfileJson?: string
 }
 
 export interface FinetuneValidationNone {

@@ -4,8 +4,8 @@ vcpkg_from_github(
   # QVAC-21901 benchmark overlay: pin to the QVAC-21901 fabric branch HEAD
   # (feat/QVAC-21901-close-mali-vulkan-encoder-gpu-cpu-gap) so the Mali sweep
   # builds the candidate encoder. Repoint REF+SHA512 as new candidates land.
-  REF ec874ef0baca212e790b2d3767fcaee5ab370dba
-  SHA512 085060da5126ce5860e9eef7adecfe04f2f49becac598712ea26c37eb938ed13d03c09f1032897ffcc516d6b7b87a69e28afd59686b12162012ae1cb1ff214e3
+  REF e2e36ffcd
+  SHA512 50f90ff3c525218101573c8e533232caa3f3b7213161c9a8a20bd19cc4e9477df156eabbd9cf6be49278c8d79885d7332dfb2fe897f372ac87dac88d988a603e
 )
 
 # Upstream CMake options only — passed through to vcpkg_cmake_configure.

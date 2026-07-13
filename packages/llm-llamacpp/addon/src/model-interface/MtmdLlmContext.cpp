@@ -659,6 +659,10 @@ LlmContext::EvalMessageResult MtmdLlmContext::evalMessageWithTools(
                              .count();
       ++visionEncodeTiles_;
       if (res == 0) {
+        if (const char* profile =
+                mtmd_get_vision_profile_json(visionContext())) {
+          visionProfileJson_ = profile;
+        }
         float* imageEmbd = mtmd_get_output_embd(visionContext());
         res = mtmd_helper_decode_image_chunk(
             visionContext(),
@@ -1165,9 +1169,13 @@ double MtmdLlmContext::getVisionEncodeMs() const { return visionEncodeMs_; }
 int32_t MtmdLlmContext::getVisionEncodeTiles() const {
   return visionEncodeTiles_;
 }
+std::string MtmdLlmContext::getVisionProfileJson() const {
+  return visionProfileJson_;
+}
 void MtmdLlmContext::resetVisionEncodeMs() {
   visionEncodeMs_ = 0.0;
   visionEncodeTiles_ = 0;
+  visionProfileJson_.clear();
 }
 
 int32_t MtmdLlmContext::getThinkingBlockDiscards() const {
@@ -1663,6 +1671,10 @@ llama_pos MtmdLlmContext::evalMediaSegment(size_t mediaIndex, llama_pos pos) {
                            .count();
     ++visionEncodeTiles_;
     if (res == 0) {
+      if (const char* profile =
+              mtmd_get_vision_profile_json(visionContext())) {
+        visionProfileJson_ = profile;
+      }
       float* imageEmbd = mtmd_get_output_embd(visionContext());
       res = mtmd_helper_decode_image_chunk(
           visionContext(),

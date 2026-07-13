@@ -181,6 +181,7 @@ public:
 
   [[nodiscard]] double getVisionEncodeMs() const override;
   [[nodiscard]] int32_t getVisionEncodeTiles() const override;
+  [[nodiscard]] std::string getVisionProfileJson() const override;
   void resetVisionEncodeMs() override;
 
   [[nodiscard]] int32_t getThinkingBlockDiscards() const override;
@@ -383,6 +384,7 @@ private:
   llama_pos perSeqCtxCeiling_ = -1;
   double visionEncodeMs_ = 0.0;
   int32_t visionEncodeTiles_ = 0;
+  std::string visionProfileJson_;
   bool pendingBatchFirstMsg_ = false;
   // Snapshot of `current_` / `protectedPrefix_` at `evalMessageWithTools`
   // entry. Restored by `cancelGenerationCleanup` to roll back to the

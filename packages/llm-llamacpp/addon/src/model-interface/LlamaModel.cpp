@@ -1182,7 +1182,7 @@ LlamaModel::singleRuntimeStatsLocked() const {
           ? kMillisInSecond / perfData.t_p_eval_ms * perfData.n_p_eval
           : 0.0;
   llama_perf_context_reset(state_->llmContext_->getCtx());
-  return {
+  qvac_lib_inference_addon_cpp::RuntimeStats stats = {
       {"TTFT", timeToFirstToken},
       {"TPS", tokensPerSecond},
       {"ppTPS", promptProcessingTPS},
@@ -1204,6 +1204,12 @@ LlamaModel::singleRuntimeStatsLocked() const {
        static_cast<int64_t>(state_->llmContext_->getVisionEncodeTiles())},
       {"avgConcurrentSeq", 1.0},
       {"backendDevice", runtimeBackendDevice_}};
+  const std::string visionProfile =
+      state_->llmContext_->getVisionProfileJson();
+  if (!visionProfile.empty()) {
+    stats.emplace_back("visionProfileJson", visionProfile);
+  }
+  return stats;
 }
 
 qvac_lib_inference_addon_cpp::RuntimeStats

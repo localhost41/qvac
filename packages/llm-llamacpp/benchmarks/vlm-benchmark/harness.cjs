@@ -286,6 +286,30 @@ function emitRow (obj) {
   console.log('[VLMROW]' + JSON.stringify(obj) + '[/VLMROW]')
 }
 
+// Vulkan profiling data is returned by the candidate addon as a compact JSON
+// string. Keep it out of VLMROW (Android logcat truncates long lines) and emit
+// only the most expensive operations in a separate, correlated marker.
+function emitVisionProfile (rep, st, fields) {
+  if (!st || typeof st.visionProfileJson !== 'string' || !st.visionProfileJson) return
+  try {
+    const parsed = JSON.parse(st.visionProfileJson)
+    const ops = Array.isArray(parsed.ops) ? parsed.ops : []
+    const topOps = ops
+      .filter(op => op && typeof op.name === 'string')
+      .sort((a, b) => Number(b.total_us || 0) - Number(a.total_us || 0))
+      .slice(0, 12)
+    console.log('[VLMPROFILE]' + JSON.stringify(stamp(rep, {
+      ...fields,
+      ops: topOps
+    })) + '[/VLMPROFILE]')
+  } catch (e) {
+    console.log('[VLMPROFILE]' + JSON.stringify(stamp(rep, {
+      ...fields,
+      error: 'invalid visionProfileJson: ' + String((e && e.message) || e)
+    })) + '[/VLMPROFILE]')
+  }
+}
+
 // Contract-v2 fields stamped into every marker (CONTRACT.md §1). `block` is the
 // measurement round: an explicit `block` arg wins (warmup passes stamp 0); else the
 // scheduler's QVAC_VLM_BLOCK if set (one block per process); else rep + 1 (measured).
@@ -455,6 +479,15 @@ function runModel (spec) {
               vision_enc_ms: st.visionEncodeMs != null ? st.visionEncodeMs : null,
               vision_enc_tiles: st.visionEncodeTiles != null ? st.visionEncodeTiles : null
             }))
+            emitVisionProfile(rep, st, {
+              cell: axis,
+              source: SOURCE,
+              model: spec.label,
+              device,
+              task: item.task,
+              id: item.id,
+              metric: item.metric
+            })
             ok++
           } catch (e) {
             emitRow(stamp(rep, { rss_mb: peakRssMb(), cell: axis, source: SOURCE, model: spec.label, device, rep, task: item.task, id: item.id, metric: item.metric, error: String((e && e.message) || e) }))

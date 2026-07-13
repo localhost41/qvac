@@ -6,5 +6,6 @@
 
 namespace qvac_lib_inference_addon_cpp {
 
-using RuntimeStats  = std::vector<std::pair<std::string, std::variant<double,int64_t>>>;
+using RuntimeStats = std::vector<
+    std::pair<std::string, std::variant<double, int64_t, std::string>>>;
 }
