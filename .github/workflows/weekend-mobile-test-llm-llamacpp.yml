@@ -1,195 +1,290 @@
-name: Weekend Mobile Tests (LLM)
-
-# Weekend-only mobile suite for @qvac/llm-llamacpp.
+# QVAC-21914 — darwin-arm64 cache-state-machine flakiness validation dispatcher.
 #
-# The heavier / slower mobile tests are kept OFF the per-PR path (see
-# packages/llm-llamacpp/test/mobile/test-groups.json) and run here once a
-# week instead. The per-PR auto-detector only reads the `android` / `ios`
-# keys of test-groups.json, so the weekend tests live under the sibling
-# `androidWeekly` / `iosWeekly` keys — invisible to PRs, consumed only by
-# this workflow via the reusable workflow's `test_groups` override.
+# TEMPORARY branch-only workflow. It reuses the `weekend-mobile-test-llm-llamacpp.yml`
+# filename because branch-only workflow files are not registered for workflow_dispatch
+# (404 on dispatch), but dispatching an already-registered filename with
+# `--ref <this branch>` executes THIS file (same pattern as commit 9458c2ad).
 #
-# What runs weekly: both OCR tests, the Elephant + HighResAurora image
-# functional tests, and the full vlmPerf{Gemma4,Qwen35} perf groups — on
-# both Android and iOS Device Farm pools.
+# Purpose: validate that the redesigned prefill-cancellation tests in
+# test/integration/cache-state-machine.test.js (rewritten by 3d7b435f, PR #3159)
+# are no longer flaky on darwin-arm64 — the platform where the previous
+# "Timeout cancellation before first token" tests 87/88 failed ~69% of runs.
 #
-# Reporting: every run writes the usual pass/fail tables to the run's
-# Summary page (via the monitor step inside the reusable workflow) and the
-# `report` job opens a GitHub issue with the per-platform verdict + a link
-# back to the run.
+# It builds prebuilds for ONLY darwin-arm64 (single-entry copy of the
+# reusable-prebuilds.yml matrix) and then runs ONLY the cache-state-machine
+# integration test file, `runs` times in a row, failing if any iteration fails.
+name: QVAC-21914 darwin-arm64 cache-state-machine validation
 
 on:
-  schedule:
-    # Sundays 06:00 UTC — off-peak so AWS Device Farm capacity is free.
-    - cron: '0 6 * * 0'
   workflow_dispatch:
     inputs:
-      ref:
-        description: "Git ref (branch/tag/SHA) to test"
+      runs:
+        description: "Number of consecutive iterations of cache-state-machine.test.js"
         type: string
         required: false
-        default: main
-      platforms:
-        description: "Which pools to run (cheap single-platform test runs)"
-        type: choice
-        required: false
-        default: both
-        options:
-          - both
-          - Android
-          - iOS
+        default: "10"
 
 permissions:
   contents: read
-  packages: read
-  pull-requests: write
-  id-token: write
-  issues: write
 
 concurrency:
-  group: weekend-mobile-llm-${{ github.ref }}
+  group: qvac21914-cachesm-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  # Build the per-platform `[{name,grep}]` override arrays from the
-  # androidWeekly / iosWeekly sections of test-groups.json. Doing it here (a
-  # cheap hosted job) keeps the weekly shard composition data-driven: editing
-  # test-groups.json changes what runs without touching this workflow.
-  prep:
-    name: Resolve weekend shards
-    runs-on: ubuntu-latest
-    outputs:
-      android_groups: ${{ steps.groups.outputs.android }}
-      ios_groups: ${{ steps.groups.outputs.ios }}
+  prebuild-darwin-arm64:
+    # Single-platform copy of the darwin-arm64 entry from reusable-prebuilds.yml
+    # (matrix `{ os: macos-15, platform: darwin, arch: arm64 }`), same actions/SHAs.
+    runs-on: macos-15
+    environment: release
+    name: prebuild-darwin-arm64
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    env:
+      WORKDIR: packages/llm-llamacpp
     steps:
-      - name: Checkout test-groups.json
+      - name: Setup build host
+        uses: tetherto/qvac/.github/actions/setup-build-host@7671af404baf8de85fa61cf3e1908da1f0a8fcaf
+        with:
+          platform: darwin
+          arch: arm64
+
+      - name: Setup LLVM
+        uses: tetherto/qvac/.github/actions/setup-llvm@98a6a6b6e8f3866dfdd75052a4071269ce85dc41
+
+      - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
         with:
-          ref: ${{ github.event.inputs.ref || github.ref }}
-          sparse-checkout: |
-            packages/llm-llamacpp/test/mobile/test-groups.json
-          sparse-checkout-cone-mode: false
+          ref: ${{ github.ref }}
+          token: ${{ secrets.PAT_TOKEN }}
 
-      - name: Build per-platform override arrays
-        id: groups
+      - name: Setup AWS
+        uses: tetherto/qvac/.github/actions/setup-aws-prebuild@2e2c94d66a50c8b8851824314e343ede5297eb1f
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+
+      - name: Setup vcpkg
+        uses: tetherto/qvac/.github/actions/setup-vcpkg@98990f3d11736a1ae88feddc514d14d78d7abdc7
+        env:
+          MODEL_S3_BUCKET: ${{ secrets.MODEL_S3_BUCKET }}
+        with:
+          platform: darwin
+          arch: arm64
+
+      - name: Cleanup vcpkg
+        shell: bash
         run: |
-          set -euo pipefail
-          GROUPS_FILE="packages/llm-llamacpp/test/mobile/test-groups.json"
-          to_specs() {
-            jq -c --arg k "$1" '
-              if (.[$k] // null) | type == "object" then
-                .[$k] | to_entries | map({ name: .key, grep: (.value | join("|")) })
-              else [] end
-            ' "$GROUPS_FILE"
-          }
-          ANDROID="$(to_specs androidWeekly)"
-          IOS="$(to_specs iosWeekly)"
-          echo "Android weekend groups: $ANDROID"
-          echo "iOS weekend groups: $IOS"
-          if [ "$ANDROID" = "[]" ] && [ "$IOS" = "[]" ]; then
-            echo "::error::No androidWeekly/iosWeekly groups found in $GROUPS_FILE"
-            exit 1
+          rm -rf $VCPKG_ROOT/buildtrees/*
+          rm -rf $VCPKG_ROOT/packages/*
+
+      - name: Setup Bare tooling
+        uses: tetherto/qvac/.github/actions/setup-bare-tooling@8668ac46334eb595aa095c94b53322c557b1bc39
+        with:
+          shell_type: bash
+
+      - name: Setup Apple Clang
+        uses: tetherto/qvac/.github/actions/setup-apple-clang@6e8d3c306a462a58589396cda428d65e015f0d8b
+
+      - name: Setup Vulkan SDK
+        # prebuilds-llm-llamacpp.yml passes include-vulkan-sdk: true; the
+        # reusable's condition includes matrix.os == 'macos-15'.
+        uses: tetherto/qvac/.github/actions/setup-vulkan-sdk@2e2c94d66a50c8b8851824314e343ede5297eb1f
+        env:
+          MODEL_S3_BUCKET: ${{ secrets.MODEL_S3_BUCKET }}
+        with:
+          platform: darwin
+          arch: arm64
+          aws-role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: eu-central-1
+
+      - name: Install npm dependencies
+        working-directory: ${{ env.WORKDIR }}
+        shell: bash
+        run: npm install
+
+      - name: Run bare-make generate
+        working-directory: ${{ env.WORKDIR }}
+        shell: bash
+        run: bare-make generate --platform darwin --arch arm64 -D BUILD_TESTING=OFF
+
+      - name: Dump vcpkg build logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          LOG_DIR="${VCPKG_ROOT}/buildtrees"
+          if [ -d "$LOG_DIR" ]; then
+            for f in "$LOG_DIR"/*/{config,install,build}-*.log; do
+              [ -f "$f" ] || continue
+              echo "===== $f ====="
+              tail -200 "$f"
+              echo ""
+            done
+          else
+            echo "vcpkg buildtrees not found at $LOG_DIR"
           fi
-          echo "android=$ANDROID" >> "$GITHUB_OUTPUT"
-          echo "ios=$IOS" >> "$GITHUB_OUTPUT"
 
-  android:
-    name: Android weekend suite
-    needs: prep
-    # On schedule, `inputs.platforms` is empty → run both. Dispatch can narrow it.
-    if: needs.prep.outputs.android_groups != '[]' && (inputs.platforms == '' || inputs.platforms == 'both' || inputs.platforms == 'Android')
-    uses: ./.github/workflows/integration-mobile-test-llm-llamacpp.yml
-    secrets: inherit
-    with:
-      ref: ${{ github.event.inputs.ref || github.ref }}
-      platforms: Android
-      test_groups: ${{ needs.prep.outputs.android_groups }}
+      - name: Run bare-make build
+        working-directory: ${{ env.WORKDIR }}
+        shell: bash
+        run: bare-make build
 
-  ios:
-    name: iOS weekend suite
-    needs: prep
-    if: needs.prep.outputs.ios_groups != '[]' && (inputs.platforms == '' || inputs.platforms == 'both' || inputs.platforms == 'iOS')
-    uses: ./.github/workflows/integration-mobile-test-llm-llamacpp.yml
-    secrets: inherit
-    with:
-      ref: ${{ github.event.inputs.ref || github.ref }}
-      platforms: iOS
-      test_groups: ${{ needs.prep.outputs.ios_groups }}
+      - name: Run bare-make install
+        working-directory: ${{ env.WORKDIR }}
+        shell: bash
+        run: bare-make install
 
-  report:
-    name: Open weekly report issue
-    needs: [android, ios]
-    # Only the scheduled (weekly cron) run files a tracking issue. Manual
-    # workflow_dispatch runs are ad-hoc single-platform checks — their results
-    # are on the run Summary page, so we skip the issue to avoid noise.
-    if: always() && github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+      - name: Strip static libraries (.a) from prebuilds
+        working-directory: ${{ env.WORKDIR }}
+        shell: bash
+        run: |
+          if [ ! -d prebuilds ]; then
+            echo "prebuilds/ does not exist; skipping"
+            exit 0
+          fi
+          find prebuilds -type f -name '*.a' -delete || true
+          echo "prebuilds contents:"
+          ls -la prebuilds
+
+      - name: Strip debug symbols
+        uses: tetherto/qvac/.github/actions/strip-prebuilds@6e8d3c306a462a58589396cda428d65e015f0d8b
+        with:
+          platform: darwin
+          workdir: ${{ env.WORKDIR }}
+
+      - name: Verify prebuild symbols
+        uses: tetherto/qvac/.github/actions/verify-prebuild-symbols@f8e9a76e3c4336c044775857f1eca8ca2f663741
+        with:
+          platform: darwin
+          workdir: ${{ env.WORKDIR }}
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # 7.0.0
+        with:
+          name: prebuilds
+          path: packages/llm-llamacpp/prebuilds
+
+  test-cachesm-darwin-arm64:
+    # Copy of the darwin-arm64 entry of integration-test-llm-llamacpp.yml
+    # (`runner: qvac-macos26-arm64-gpu`), reduced to a single platform and a
+    # single test file executed `runs` times.
+    needs: prebuild-darwin-arm64
+    runs-on: qvac-macos26-arm64-gpu
+    environment: release
+    name: test-cachesm-darwin-arm64
+    timeout-minutes: 300
     permissions:
       contents: read
-      issues: write
+      packages: read
+      id-token: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      WORKDIR: packages/llm-llamacpp
+      NO_GPU: "false"
     steps:
-      - name: Compose and file report
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # Reusable-workflow outputs (empty if a platform job was skipped).
-          A_RESULT: ${{ needs.android.outputs.test-result }}
-          A_TOTAL: ${{ needs.android.outputs.test-total }}
-          A_PASSED: ${{ needs.android.outputs.test-passed }}
-          A_FAILED: ${{ needs.android.outputs.test-failed }}
-          I_RESULT: ${{ needs.ios.outputs.test-result }}
-          I_TOTAL: ${{ needs.ios.outputs.test-total }}
-          I_PASSED: ${{ needs.ios.outputs.test-passed }}
-          I_FAILED: ${{ needs.ios.outputs.test-failed }}
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # 6.3.0
+        with:
+          node-version: lts/*
+
+      - name: Manual Workspace Cleanup
+        if: runner.environment != 'github-hosted'
+        run: rm -rf "$GITHUB_WORKSPACE" && mkdir -p "$GITHUB_WORKSPACE"
+        shell: bash
+        working-directory: .
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
+        with:
+          ref: ${{ github.ref }}
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Cache integration test models
+        id: model-cache
+        if: runner.environment != 'github-hosted'
+        uses: ./.github/actions/cache-models
+        with:
+          package: llm-llamacpp
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # 6.0.0
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: eu-central-1
+
+      - name: Install NPM dependencies
+        working-directory: ${{ env.WORKDIR }}
         run: |
-          set -euo pipefail
+          npm install
 
-          row() {
-            # $1 platform label, $2 result, $3 total, $4 passed, $5 failed
-            local result="${2:-}"
-            local emoji="⚠️"
-            local label="no run"
-            case "$result" in
-              PASSED|passed) emoji="✅"; label="passed" ;;
-              FAILED|failed) emoji="❌"; label="failed" ;;
-            esac
-            echo "| $1 | $emoji $label | ${3:-–} | ${4:-–} | ${5:-–} |"
-          }
+      - name: Install bare tooling
+        run: npm install -g --force bare bare-make bare-runtime bare-https brittle
 
-          DATE_UTC="$(date -u +%Y-%m-%d)"
-          OVERALL="✅ all passed"
-          if [ "${A_RESULT:-}" = "FAILED" ] || [ "${A_RESULT:-}" = "failed" ] \
-             || [ "${I_RESULT:-}" = "FAILED" ] || [ "${I_RESULT:-}" = "failed" ]; then
-            OVERALL="❌ failures detected"
-          elif [ -z "${A_RESULT:-}" ] && [ -z "${I_RESULT:-}" ]; then
-            OVERALL="⚠️ no results (jobs skipped or errored)"
+      - name: Download prebuilds (from artifacts)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
+        with:
+          name: prebuilds
+          path: ${{ runner.temp }}/prebuilds-staging
+
+      - name: Move prebuilds from staging to workspace
+        shell: bash
+        run: |
+          mkdir -p ${{ env.WORKDIR }}/prebuilds
+          cp -r ${{ runner.temp }}/prebuilds-staging/* ${{ env.WORKDIR }}/prebuilds/
+          echo "Prebuilds moved from staging area"
+          ls -la ${{ env.WORKDIR }}/prebuilds/
+
+      - name: Run cache-state-machine test loop
+        working-directory: ${{ env.WORKDIR }}
+        shell: bash
+        env:
+          QASE_API_TOKEN: ${{ secrets.QASE_API_TOKEN }}
+          RUNS_INPUT: ${{ inputs.runs }}
+        run: |
+          RUNS="${RUNS_INPUT//[^0-9]/}"
+          if [ -z "$RUNS" ] || [ "$RUNS" -lt 1 ]; then RUNS=10; fi
+          echo "Running test/integration/cache-state-machine.test.js x${RUNS} iterations"
+          mkdir -p cachesm-logs
+          FAILED=0
+          {
+            echo "## cache-state-machine darwin-arm64 flakiness sample (${RUNS} iterations)"
+            echo ""
+            echo "| Iteration | Result | TAP summary |"
+            echo "|-----------|--------|-------------|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for i in $(seq 1 "$RUNS"); do
+            echo "===================== ITERATION $i/$RUNS ====================="
+            set +e
+            bare test/integration/cache-state-machine.test.js --exit 2>&1 | tee "cachesm-logs/iter-$i.log"
+            RC=${PIPESTATUS[0]}
+            set -e
+            SUMMARY=$(grep -aE '^# tests = ' "cachesm-logs/iter-$i.log" | tail -1)
+            NOTOK=$(grep -acE '^not ok ' "cachesm-logs/iter-$i.log" || true)
+            if [ "$RC" -ne 0 ] || [ "$NOTOK" -gt 0 ] || [ -z "$SUMMARY" ]; then
+              RESULT="FAIL (rc=$RC, not-ok=$NOTOK)"
+              FAILED=$((FAILED+1))
+              echo "::error::Iteration $i FAILED (rc=$RC, not-ok lines=$NOTOK, summary='$SUMMARY')"
+              grep -aE 'not ok ' "cachesm-logs/iter-$i.log" | head -20 || true
+            else
+              RESULT="PASS"
+            fi
+            echo "| $i | $RESULT | ${SUMMARY:-none} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "ITERATION $i RESULT: $RESULT ${SUMMARY:-}"
+          done
+          {
+            echo ""
+            echo "**Total: $((RUNS-FAILED))/${RUNS} passed**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "==================== FINAL: $((RUNS-FAILED))/${RUNS} passed ===================="
+          if [ "$FAILED" -gt 0 ]; then
+            exit 1
           fi
 
-          BODY_FILE="$RUNNER_TEMP/report.md"
-          {
-            echo "Automated weekend mobile run for **@qvac/llm-llamacpp**."
-            echo ""
-            echo "**Overall: $OVERALL**"
-            echo ""
-            echo "| Platform | Result | Total | Passed | Failed |"
-            echo "| --- | --- | --- | --- | --- |"
-            row "Android" "$A_RESULT" "$A_TOTAL" "$A_PASSED" "$A_FAILED"
-            row "iOS" "$I_RESULT" "$I_TOTAL" "$I_PASSED" "$I_FAILED"
-            echo ""
-            echo "Full per-test tables and Device Farm run links are on the [workflow run summary]($RUN_URL)."
-            echo ""
-            echo "Weekly coverage: OCR (LightOn + Paddle), Elephant + HighResAurora image functional, and vlmPerf{Gemma4,Qwen35}."
-          } > "$BODY_FILE"
-
-          # Idempotent label so the report issues are filterable.
-          gh label create weekly-mobile-report \
-            --repo "$REPO" \
-            --color 1d76db \
-            --description "Automated weekend mobile test reports" 2>/dev/null || true
-
-          gh issue create \
-            --repo "$REPO" \
-            --title "Weekend Mobile Tests (LLM) — $DATE_UTC" \
-            --label weekly-mobile-report \
-            --body-file "$BODY_FILE"
+      - name: Upload iteration logs
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # 7.0.0
+        with:
+          name: cachesm-darwin-arm64-logs-${{ github.run_number }}
+          path: packages/llm-llamacpp/cachesm-logs
+          retention-days: 30
+          if-no-files-found: warn
