@@ -13,13 +13,15 @@ import pytest
 import pytest_asyncio
 
 from poc_bare_rpc_transport import WORKER
-from qvac.models import QWEN3_600M_INST_Q4
+from qvac.models import QWEN3_600M_INST_Q4, TTS_EN_SUPERTONIC_Q4_0
 from qvac.schemas import (
     CompletionStreamRequest,
     HeartbeatRequest,
     LoadModelRequest,
+    ModelType,
+    TextToSpeechStreamRequest,
 )
-from qvac.methods import completion_stream, heartbeat, load_model
+from qvac.methods import completion_stream, heartbeat, load_model, text_to_speech_stream
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -75,3 +77,39 @@ async def test_load_model_and_completion_stream_via_bare_rpc(worker) -> None:
             if event.type == "contentDelta":
                 text += event.text
     assert text.strip(), "expected real completion text via the bare_rpc server-stream"
+
+
+async def _as_async_iter(items):
+    for item in items:
+        yield item
+
+
+async def test_load_model_and_tts_stream_duplex_via_bare_rpc(worker) -> None:
+    """Exercises call_duplex end to end: text goes up the request stream while
+    synthesized audio comes down the response stream, concurrently."""
+    load_request = LoadModelRequest.model_validate(
+        {
+            "type": "loadModel",
+            "modelSrc": TTS_EN_SUPERTONIC_Q4_0.src,
+            "modelType": ModelType.tts_ggml,
+            "modelConfig": {"ttsEngine": "supertonic", "language": "en"},
+        }
+    )
+    load_response = await load_model(worker, load_request)
+    assert load_response.success, load_response.error
+    model_id = load_response.model_id
+
+    tts_request = TextToSpeechStreamRequest.model_validate(
+        {"type": "textToSpeechStream", "modelId": model_id}
+    )
+    text = b"Hello from QVAC. This is streaming text to speech."
+
+    samples = []
+    saw_done = False
+    async for chunk in text_to_speech_stream(
+        worker, tts_request, _as_async_iter([text])
+    ):
+        samples.extend(chunk.buffer)
+        saw_done = saw_done or chunk.done
+    assert samples, "expected real synthesized audio via the bare_rpc duplex stream"
+    assert saw_done, "expected a terminal done=True event on the response stream"

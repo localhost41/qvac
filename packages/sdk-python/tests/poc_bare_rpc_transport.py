@@ -3,9 +3,10 @@ to a real spawned SDK worker, replacing poc_heartbeat.py's hand-rolled frame
 encode/decode with the real library.
 
 Kept deliberately separate from poc_heartbeat.py/poc_transport.py (used by
-PR #3100) rather than replacing them -- this is exploratory, async (bare_rpc
-is asyncio-native), and not yet wired into qvac._transport.Transport's sync
-protocol. See the PR/commit notes for what's proven here vs. still open.
+PR #3100) rather than replacing them -- this is exploratory, and bare_rpc is
+asyncio-native so `BareRpcWorker` matches qvac._transport.Transport's async
+shape directly (call/call_stream/call_duplex), no PocTransport-style adapter
+needed. See the PR/commit notes for what's proven here vs. still open.
 
 Wire-level notes:
 - Our worker ignores bare-rpc's `command` field entirely and routes purely
@@ -20,6 +21,15 @@ Wire-level notes:
   same buffer-and-split-on-newline handling poc_heartbeat.py's call_stream
   does, just fed from bare_rpc's discrete async-iterated chunks instead of
   raw socket bytes.
+- Duplex maps onto `RPC.create_bidirectional_stream`: the returned
+  `(outgoing, incoming)` pair already IS the request/response stream pair
+  poc_heartbeat.py's hand-rolled `_duplex_call` builds frame-by-frame -- the
+  library owns the OPEN/RESUME/PAUSE control handshake, we only `write()`
+  the JSON payload as the first outgoing chunk followed by `up`'s chunks,
+  `end()` the outgoing side, and read `incoming` with the same
+  buffer-and-split-on-newline handling as call_stream. The two sides run
+  concurrently (a background task pumps `up` while `incoming` is iterated)
+  since the worker can start responding before the client finishes sending.
 """
 
 from __future__ import annotations
@@ -30,7 +40,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterable, AsyncIterator
 
 import bare_rpc
 
@@ -152,7 +162,7 @@ class BareRpcWorker:
         except OSError:
             return ""
 
-    # ---- the two call shapes exercised so far --------------------------
+    # ---- the three call shapes -----------------------------------------
 
     async def call(self, payload: dict) -> dict:
         """Unary, via bare_rpc.RPC.request -- no hand-rolled framing at all."""
@@ -176,3 +186,37 @@ class BareRpcWorker:
                     yield _json_or_raise(line.encode("utf-8"))
         if buffer.strip():
             yield _json_or_raise(buffer.encode("utf-8"))
+
+    async def call_duplex(
+        self, payload: dict, up: AsyncIterable[bytes]
+    ) -> AsyncIterator[dict]:
+        """Duplex, via bare_rpc.RPC.create_bidirectional_stream -- first outgoing
+        chunk is the JSON payload, then `up`'s chunks; yields parsed response
+        chunks with the same buffer-and-split-on-newline handling as call_stream."""
+        outgoing, incoming = await self.rpc.create_bidirectional_stream(command=0)
+        await outgoing.write(json.dumps(payload).encode("utf-8"))
+
+        async def _pump_up() -> None:
+            async for chunk in up:
+                await outgoing.write(chunk)
+            await outgoing.end()
+
+        pump_task = asyncio.ensure_future(_pump_up())
+        try:
+            buffer = ""
+            async for chunk in incoming:
+                buffer += chunk.decode("utf-8")
+                lines = buffer.split("\n")
+                buffer = lines.pop()
+                for line in lines:
+                    if line.strip():
+                        yield _json_or_raise(line.encode("utf-8"))
+            if buffer.strip():
+                yield _json_or_raise(buffer.encode("utf-8"))
+        finally:
+            if not pump_task.done():
+                pump_task.cancel()
+            try:
+                await pump_task
+            except asyncio.CancelledError:
+                pass
