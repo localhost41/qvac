@@ -310,6 +310,8 @@ declare namespace TTSGgml {
     locale?: string
     maxChunkScalars?: number
     outputSampleRate?: number
+    /** Cancels a non-streaming `run()`: when the signal aborts, `response.await()` rejects with the abort reason. An already-aborted signal rejects without dispatching the engine. */
+    signal?: AbortSignal
   }
 
   export {

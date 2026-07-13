@@ -549,6 +549,10 @@ class TTSGgml {
    * @param {boolean} [input.streamOutput=false] - Chunked streaming output
    * @param {string} [input.locale] - BCP-47 locale for chunking when `streamOutput`
    * @param {number} [input.maxChunkScalars] - Max graphemes per chunk when `streamOutput`
+   * @param {AbortSignal} [input.signal] - Cancels the (non-streaming) run: when the
+   *   signal aborts, `response.await()` rejects with the abort reason.  An
+   *   already-aborted signal rejects deterministically without dispatching the
+   *   engine (no native interrupt), so cancellation is race-free on fast hardware.
    */
   async run (input) {
     if (input && typeof input === 'object' && input.streamOutput === true) {
@@ -985,7 +989,18 @@ class TTSGgml {
   }
 
   async _runInternal (input) {
-    const response = this._job.start()
+    const signal = input && input.signal
+    const response = this._job.start({ signal })
+
+    // An already-aborted signal settles `response` synchronously via
+    // QvacResponse._markAbortPending, so there is nothing to synthesize.  Skip
+    // dispatch entirely: we neither run the engine for a doomed request nor
+    // leave a mid-flight native job that a later cancel()/unload() would have to
+    // interrupt — that native interrupt is what wedges macOS teardown.
+    if (signal && signal.aborted) {
+      return response
+    }
+
     try {
       // Per-request overrides (e.g. input.outputSampleRate) are not
       // honoured by the native engine today — all synthesis knobs are
