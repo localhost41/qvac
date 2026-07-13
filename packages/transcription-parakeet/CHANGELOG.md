@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Bumped the `parakeet-cpp` `version>=` floors from `2026-07-07` to `2026-07-09`,
+  consuming registry PR
+  [tetherto/qvac-registry-vcpkg#243](https://github.com/tetherto/qvac-registry-vcpkg/pull/243)
+  (engine PR
+  [tetherto/qvac-ext-lib-whisper.cpp#87](https://github.com/tetherto/qvac-ext-lib-whisper.cpp/pull/87)).
+  On CPU-only runs the conformer encoder GEMM weights are now placed in ggml's
+  CPU repack extra buffer type at load (q4_0 → q4_0_4x8/8x8, q8_0 → q8_0_4x8),
+  so quantized mat-muls run on the block-parallel dotprod/i8mm/AVX2 kernels
+  instead of the generic row-wise path. This closes the CPU-side q4_0
+  penalty — q4_0 was previously *slower* than q8_0 on every desktop CPU:
+  benchmark run
+  [29058764288](https://github.com/tetherto/qvac/actions/runs/29058764288)
+  vs pre-fix
+  [27968071657](https://github.com/tetherto/qvac/actions/runs/27968071657)
+  shows tdt CPU mean RTF −47% on darwin-arm64 (q4_0 now ahead of q8_0),
+  −39% darwin-x64, −51/−52% linux-x64, with the same pattern for
+  ctc/eou/sortformer and q8_0 improving broadly. GPU paths unchanged.
+  Output is bit-identical (offline transcripts, streaming byte-equality,
+  determinism all verified in the engine PR). linux-arm64 is unchanged —
+  that prebuild does not compile the dotprod/i8mm kernels (separate
+  follow-up). Manifest-only: `default-registry.baseline` is unchanged.
+
 ## [0.9.1] - 2026-07-08
 
 ### Fixed
