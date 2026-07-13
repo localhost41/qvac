@@ -4,6 +4,7 @@
 #include <cassert>
 #include <chrono>
 #include <filesystem>
+#include <map>
 #include <system_error>
 
 #include <common/log.h>
@@ -11,6 +12,7 @@
 #include <inference-addon-cpp/Errors.hpp>
 #include <llama/mtmd/mtmd-helper.h>
 #include <llama/mtmd/mtmd.h>
+#include <nlohmann/json.hpp>
 
 #include "CacheManager.hpp"
 #include "ContextSlider.hpp"
@@ -38,6 +40,69 @@ bool isFileInitialized(const std::filesystem::path& path) {
   std::error_code errorCode;
   const auto size = std::filesystem::file_size(path, errorCode);
   return !errorCode && size != 0;
+}
+
+std::string visionProfileCategory(const std::string& name) {
+  if (name.find("CONV_2D") != std::string::npos) {
+    return "Conv2d";
+  }
+  if (name.find("FLASH_ATTN") != std::string::npos) {
+    return "Attention";
+  }
+  if (name.find("SOFT_MAX") != std::string::npos) {
+    return "Softmax";
+  }
+  if (name.find("MUL_MAT") != std::string::npos) {
+    return "MulMat";
+  }
+  if (name.find("RMS_NORM") != std::string::npos) {
+    return "RmsNorm";
+  }
+  if (name.find("ROPE") != std::string::npos) {
+    return "Rope";
+  }
+  return "Other";
+}
+
+void captureVisionProfileStats(
+    mtmd_context* visionContext,
+    std::vector<std::pair<std::string, double>>& stats) {
+  stats.clear();
+  const char* raw = mtmd_get_vision_profile_json(visionContext);
+  if (raw == nullptr || raw[0] == '\0') {
+    return;
+  }
+
+  try {
+    const auto profile = nlohmann::json::parse(raw);
+    if (!profile.contains("ops") || !profile["ops"].is_array()) {
+      return;
+    }
+
+    std::map<std::string, double> totalUs;
+    std::map<std::string, double> totalCount;
+    double total = 0.0;
+    for (const auto& op : profile["ops"]) {
+      const std::string name = op.value("name", "");
+      const double us = op.value("total_us", 0.0);
+      const double count = op.value("count", 0.0);
+      const std::string category = visionProfileCategory(name);
+      totalUs[category] += us;
+      totalCount[category] += count;
+      total += us;
+    }
+
+    stats.emplace_back("visionProfileTotalUs", total);
+    for (const auto& [category, us] : totalUs) {
+      stats.emplace_back("visionProfile" + category + "Us", us);
+      stats.emplace_back(
+          "visionProfile" + category + "Count", totalCount[category]);
+    }
+  } catch (const std::exception&) {
+    // Profiling must never make inference fail. An absent or malformed optional
+    // report simply produces no profile stats.
+    stats.clear();
+  }
 }
 } // namespace
 
@@ -659,10 +724,7 @@ LlmContext::EvalMessageResult MtmdLlmContext::evalMessageWithTools(
                              .count();
       ++visionEncodeTiles_;
       if (res == 0) {
-        if (const char* profile =
-                mtmd_get_vision_profile_json(visionContext())) {
-          visionProfileJson_ = profile;
-        }
+        captureVisionProfileStats(visionContext(), visionProfileStats_);
         float* imageEmbd = mtmd_get_output_embd(visionContext());
         res = mtmd_helper_decode_image_chunk(
             visionContext(),
@@ -1169,13 +1231,14 @@ double MtmdLlmContext::getVisionEncodeMs() const { return visionEncodeMs_; }
 int32_t MtmdLlmContext::getVisionEncodeTiles() const {
   return visionEncodeTiles_;
 }
-std::string MtmdLlmContext::getVisionProfileJson() const {
-  return visionProfileJson_;
+std::vector<std::pair<std::string, double>>
+MtmdLlmContext::getVisionProfileStats() const {
+  return visionProfileStats_;
 }
 void MtmdLlmContext::resetVisionEncodeMs() {
   visionEncodeMs_ = 0.0;
   visionEncodeTiles_ = 0;
-  visionProfileJson_.clear();
+  visionProfileStats_.clear();
 }
 
 int32_t MtmdLlmContext::getThinkingBlockDiscards() const {
@@ -1671,10 +1734,7 @@ llama_pos MtmdLlmContext::evalMediaSegment(size_t mediaIndex, llama_pos pos) {
                            .count();
     ++visionEncodeTiles_;
     if (res == 0) {
-      if (const char* profile =
-              mtmd_get_vision_profile_json(visionContext())) {
-        visionProfileJson_ = profile;
-      }
+      captureVisionProfileStats(visionContext(), visionProfileStats_);
       float* imageEmbd = mtmd_get_output_embd(visionContext());
       res = mtmd_helper_decode_image_chunk(
           visionContext(),

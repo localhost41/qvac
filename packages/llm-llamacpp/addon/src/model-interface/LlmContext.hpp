@@ -6,6 +6,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "addon/LlmErrors.hpp"
 #include "common/chat.h"
@@ -392,10 +394,13 @@ public:
   [[nodiscard]] virtual int32_t getVisionEncodeTiles() const { return 0; }
 
   /**
-   * Structured backend profile for the most recent vision encode. Empty for
+   * Numeric per-operation totals for the most recent vision encode. Empty for
    * text-only contexts and when backend profiling is disabled.
    */
-  [[nodiscard]] virtual std::string getVisionProfileJson() const { return {}; }
+  [[nodiscard]] virtual std::vector<std::pair<std::string, double>>
+  getVisionProfileStats() const {
+    return {};
+  }
 
   /**
    * Reset the vision-encode accumulators (ms + slice count) to zero. Called at
