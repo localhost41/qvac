@@ -42,7 +42,12 @@ import tempfile
 from pathlib import Path
 from typing import Any, AsyncIterable, AsyncIterator
 
-import bare_rpc
+try:
+    import bare_rpc
+except ImportError:
+    bare_rpc = None
+
+BARE_RPC_AVAILABLE = bare_rpc is not None
 
 SDK = os.environ.get(
     "QVAC_POC_SDK_DIR",

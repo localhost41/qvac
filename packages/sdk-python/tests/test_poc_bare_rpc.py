@@ -12,7 +12,7 @@ import os
 import pytest
 import pytest_asyncio
 
-from poc_bare_rpc_transport import WORKER
+from poc_bare_rpc_transport import BARE_RPC_AVAILABLE, WORKER
 from qvac.models import QWEN3_600M_INST_Q4, TTS_EN_SUPERTONIC_Q4_0
 from qvac.schemas import (
     CompletionStreamRequest,
@@ -25,6 +25,11 @@ from qvac.methods import completion_stream, heartbeat, load_model, text_to_speec
 
 pytestmark = [
     pytest.mark.asyncio,
+    pytest.mark.skipif(
+        not BARE_RPC_AVAILABLE,
+        reason="bare_rpc not installed -- install the 'bare-rpc' extra "
+        "(`pip install -e '.[bare-rpc]'`) to run these PoC tests",
+    ),
     pytest.mark.skipif(
         not os.path.exists(WORKER),
         reason=f"no built SDK worker found at {WORKER!r} -- run `bun run build` in packages/sdk, or set QVAC_POC_SDK_DIR",
