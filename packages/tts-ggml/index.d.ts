@@ -27,6 +27,26 @@ declare interface TTSGgmlFiles {
   supertonicModelPath?: string
   supertonic?: string
   /**
+   * CosyVoice3 model directory holding the sub-model GGUFs
+   * (`cosyvoice3-{llm,flow,hift,s3tok,campplus,voices}-*.gguf`). Routes to the
+   * CosyVoice3 engine. Falls back to the shared `modelDir` when unset.
+   *
+   * ITERATION 1 (SCAFFOLD): the native engine is the wiring skeleton and
+   * returns placeholder audio until the CPU inference graphs land.
+   */
+  cosyvoiceModelDir?: string
+  /** CosyVoice3 per-component GGUF paths (override discovery under the model dir). */
+  cosyvoiceLlmModel?: string
+  cosyvoiceLlmModelPath?: string
+  cosyvoiceFlowModel?: string
+  cosyvoiceFlowModelPath?: string
+  cosyvoiceHiftModel?: string
+  cosyvoiceHiftModelPath?: string
+  cosyvoiceS3tokModel?: string
+  cosyvoiceS3tokModelPath?: string
+  cosyvoiceCampplusModel?: string
+  cosyvoiceCampplusModelPath?: string
+  /**
    * LavaSR enhancer GGUF: single-file Vocos bandwidth extension produced by
    * tts-cpp/scripts/convert-lavasr-enhancer-to-gguf.py. When supplied, output
    * is neurally upsampled to 48 kHz (the canonical way to enable enhancement;
@@ -113,8 +133,8 @@ declare interface TTSGgmlOptions {
   config?: TTSGgmlRuntimeConfig
   logger?: object
   lazySessionLoading?: boolean
-  /** Explicit engine selection ('chatterbox' | 'supertonic').  Auto-detected from `files` when omitted. */
-  engine?: 'chatterbox' | 'supertonic'
+  /** Explicit engine selection ('chatterbox' | 'supertonic' | 'cosyvoice3').  Auto-detected from `files` when omitted. */
+  engine?: 'chatterbox' | 'supertonic' | 'cosyvoice3'
   /** Chatterbox: voice-cloning reference audio path (wav). */
   referenceAudio?: string
   /** Chatterbox: directory of baked voice-conditioning tensors. */
@@ -129,12 +149,16 @@ declare interface TTSGgmlOptions {
   kvCacheType?: 'f32' | 'f16' | 'q8_0'
   /** Override `std::thread::hardware_concurrency()`. */
   threads?: number
-  /** Chatterbox-only: speech tokens per native streaming chunk (25 ~= 1 s of audio).  0 disables. */
+  /** Chatterbox / CosyVoice3: speech tokens per native streaming chunk (25 ~= 1 s of audio).  0 disables. */
   streamChunkTokens?: number
-  /** Chatterbox-only: smaller first chunk for low first-audio-out latency. */
+  /** Chatterbox / CosyVoice3: smaller first chunk for low first-audio-out latency. */
   streamFirstChunkTokens?: number
-  /** Chatterbox-only: CFM Euler step count (1 halves cost; 2 matches Python meanflow). */
+  /** CosyVoice3-only: left-context speech tokens carried into each streaming chunk (bounds per-chunk cost). */
+  streamLeftContextTokens?: number
+  /** Chatterbox / CosyVoice3: CFM/flow Euler step count (Chatterbox: 1 halves cost, 2 matches meanflow; CosyVoice3: 0 -> model default 10). */
   cfmSteps?: number
+  /** CosyVoice3: transcript of `referenceAudio` for zero-shot voice cloning (conditions the LM prompt). */
+  promptText?: string
   /** Supertonic: voice id baked into the GGUF (e.g. 'F1', 'F2', 'M1', 'M2'). */
   voice?: string
   /** Alias for `voice` (cross-compat with `@qvac/tts-onnx`). */
@@ -206,6 +230,7 @@ declare class TTSGgml {
 
   static readonly ENGINE_CHATTERBOX: 'chatterbox'
   static readonly ENGINE_SUPERTONIC: 'supertonic'
+  static readonly ENGINE_COSYVOICE3: 'cosyvoice3'
 
   load(...args: unknown[]): Promise<void>
   unload(): Promise<void>
@@ -214,7 +239,7 @@ declare class TTSGgml {
   cancel(): Promise<void>
   getApiDefinition(): string
   getState(): { configLoaded: boolean; weightsLoaded: boolean; destroyed: boolean }
-  getEngineType(): 'chatterbox' | 'supertonic'
+  getEngineType(): 'chatterbox' | 'supertonic' | 'cosyvoice3'
 
   opts: object
   exclusiveRun: boolean

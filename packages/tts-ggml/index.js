@@ -16,6 +16,12 @@ const { accumulateTextStream } = require('./lib/textStreamAccumulator')
 
 const ENGINE_CHATTERBOX = 'chatterbox'
 const ENGINE_SUPERTONIC = 'supertonic'
+// CosyVoice3 (Fun-CosyVoice3-0.5B / 1.5B) — iteration 1 scaffold. Ships as a
+// small set of GGUFs (cosyvoice3-{llm,flow,hift,s3tok,campplus,voices}-*.gguf);
+// a modelDir holding them (or an explicit `files.cosyvoiceModelDir`) routes here.
+const ENGINE_COSYVOICE3 = 'cosyvoice3'
+// The LLM sub-model is the tell for modelDir auto-detection.
+const COSYVOICE3_LLM_RE = /^cosyvoice3-llm(-[a-z0-9_]+)?\.gguf$/i
 
 const CHATTERBOX_T3_TURBO = 'chatterbox-t3-turbo.gguf'
 const CHATTERBOX_T3_MTL = 'chatterbox-t3-mtl.gguf'
@@ -85,6 +91,23 @@ function findSupertonicV3InDir(modelDir) {
 }
 
 /**
+ * True when `modelDir` contains a CosyVoice3 LLM GGUF (the sub-model that
+ * unambiguously identifies a CosyVoice3 model directory).
+ * @param {string|undefined} modelDir
+ * @returns {boolean}
+ */
+function dirHasCosyvoice3(modelDir) {
+  if (!modelDir) return false
+  let entries
+  try {
+    entries = fs.readdirSync(modelDir)
+  } catch (_e) {
+    return false
+  }
+  return entries.some((n) => COSYVOICE3_LLM_RE.test(n))
+}
+
+/**
  * Normalize the `files` map into the GGUF paths each engine variant needs.
  * Accepts:
  *   - Chatterbox: explicit `t3Model`/`s3genModel`, or a `modelDir` that
@@ -106,6 +129,14 @@ function normalizeGgmlFiles(files) {
     t3Model: firstNonEmpty(f.t3Model, f.t3ModelPath, f.t3),
     s3genModel: firstNonEmpty(f.s3genModel, f.s3genModelPath, f.s3gen),
     supertonicModel: firstNonEmpty(f.supertonicModel, f.supertonicModelPath, f.supertonic),
+    // CosyVoice3: either a dedicated modelDir of cosyvoice3-*.gguf files, or
+    // explicit per-component paths. Falls back to the shared `modelDir`.
+    cosyvoiceModelDir: firstNonEmpty(f.cosyvoiceModelDir),
+    cosyvoiceLlmModel: firstNonEmpty(f.cosyvoiceLlmModel, f.cosyvoiceLlmModelPath),
+    cosyvoiceFlowModel: firstNonEmpty(f.cosyvoiceFlowModel, f.cosyvoiceFlowModelPath),
+    cosyvoiceHiftModel: firstNonEmpty(f.cosyvoiceHiftModel, f.cosyvoiceHiftModelPath),
+    cosyvoiceS3tokModel: firstNonEmpty(f.cosyvoiceS3tokModel, f.cosyvoiceS3tokModelPath),
+    cosyvoiceCampplusModel: firstNonEmpty(f.cosyvoiceCampplusModel, f.cosyvoiceCampplusModelPath),
     voicesDir: firstNonEmpty(f.voicesDir),
     // LavaSR enhancer GGUF: single-file Vocos bandwidth extension, produced by
     // tts-cpp/scripts/convert-lavasr-enhancer-to-gguf.py. One canonical key
@@ -136,17 +167,27 @@ function normalizeGgmlFiles(files) {
  *      Chatterbox path resolver based on which T3 file is present).
  */
 function detectEngineType(engine, normalizedFiles) {
-  if (engine === ENGINE_CHATTERBOX || engine === ENGINE_SUPERTONIC) {
+  if (
+    engine === ENGINE_CHATTERBOX ||
+    engine === ENGINE_SUPERTONIC ||
+    engine === ENGINE_COSYVOICE3
+  ) {
     return engine
   }
   if (engine != null && engine !== '') {
     throw new Error(
-      "tts-ggml: 'engine' option must be 'chatterbox' or 'supertonic' " + "(got '" + engine + "')"
+      "tts-ggml: 'engine' option must be 'chatterbox', 'supertonic' or 'cosyvoice3' " +
+        "(got '" + engine + "')"
     )
+  }
+  // Explicit CosyVoice3 files/dir take precedence over shared-modelDir sniffing.
+  if (normalizedFiles.cosyvoiceModelDir || normalizedFiles.cosyvoiceLlmModel) {
+    return ENGINE_COSYVOICE3
   }
   if (normalizedFiles.t3Model || normalizedFiles.s3genModel) return ENGINE_CHATTERBOX
   if (normalizedFiles.supertonicModel) return ENGINE_SUPERTONIC
   if (normalizedFiles.modelDir) {
+    if (dirHasCosyvoice3(normalizedFiles.modelDir)) return ENGINE_COSYVOICE3
     const turboT3 = path.join(normalizedFiles.modelDir, CHATTERBOX_T3_TURBO)
     const mtlT3 = path.join(normalizedFiles.modelDir, CHATTERBOX_T3_MTL)
     const supertonicEn = path.join(normalizedFiles.modelDir, SUPERTONIC_DEFAULT)
@@ -262,7 +303,9 @@ class TTSGgml {
       threads,
       streamChunkTokens,
       streamFirstChunkTokens,
+      streamLeftContextTokens,
       cfmSteps,
+      promptText,
       voice,
       voiceName,
       steps,
@@ -322,7 +365,23 @@ class TTSGgml {
     this._engineType = detectEngineType(engine, normalizedFiles)
     this._voicesDir = normalizedFiles.voicesDir
 
-    if (this._engineType === ENGINE_SUPERTONIC) {
+    if (this._engineType === ENGINE_COSYVOICE3) {
+      // CosyVoice3 discovers its sub-model GGUFs from a model directory; the
+      // native engine resolves the individual components. Explicit
+      // per-component paths win over the directory.
+      this._cosyvoiceModelDir = firstNonEmpty(
+        normalizedFiles.cosyvoiceModelDir,
+        normalizedFiles.modelDir
+      )
+      this._cosyvoiceLlmModelPath = normalizedFiles.cosyvoiceLlmModel
+      this._cosyvoiceFlowModelPath = normalizedFiles.cosyvoiceFlowModel
+      this._cosyvoiceHiftModelPath = normalizedFiles.cosyvoiceHiftModel
+      this._cosyvoiceS3tokModelPath = normalizedFiles.cosyvoiceS3tokModel
+      this._cosyvoiceCampplusModelPath = normalizedFiles.cosyvoiceCampplusModel
+      this._supertonicModelPath = undefined
+      this._t3ModelPath = undefined
+      this._s3genModelPath = undefined
+    } else if (this._engineType === ENGINE_SUPERTONIC) {
       const root = normalizedFiles.modelDir
       this._supertonicModelPath = firstNonEmpty(
         normalizedFiles.supertonicModel,
@@ -359,7 +418,9 @@ class TTSGgml {
     this._threads = threads
     this._streamChunkTokens = streamChunkTokens
     this._streamFirstChunkTokens = streamFirstChunkTokens
+    this._streamLeftContextTokens = streamLeftContextTokens
     this._cfmSteps = cfmSteps
+    this._promptText = promptText
     this._voice = firstNonEmpty(voice, voiceName)
     this._steps = firstNonEmpty(steps, numInferenceSteps)
     this._speed = speed
@@ -859,7 +920,43 @@ class TTSGgml {
     if (this._engineType === ENGINE_SUPERTONIC) {
       return this._buildSupertonicParams()
     }
+    if (this._engineType === ENGINE_COSYVOICE3) {
+      return this._buildCosyvoiceParams()
+    }
     return this._buildChatterboxParams()
+  }
+
+  _buildCosyvoiceParams() {
+    const params = {
+      engineType: ENGINE_COSYVOICE3,
+      cosyvoiceModelDir: this._cosyvoiceModelDir || '',
+      language: this._config?.language || 'en'
+    }
+    if (this._cosyvoiceLlmModelPath) params.cosyvoiceLlmModelPath = this._cosyvoiceLlmModelPath
+    if (this._cosyvoiceFlowModelPath) params.cosyvoiceFlowModelPath = this._cosyvoiceFlowModelPath
+    if (this._cosyvoiceHiftModelPath) params.cosyvoiceHiftModelPath = this._cosyvoiceHiftModelPath
+    if (this._cosyvoiceS3tokModelPath) params.cosyvoiceS3tokModelPath = this._cosyvoiceS3tokModelPath
+    if (this._cosyvoiceCampplusModelPath) {
+      params.cosyvoiceCampplusModelPath = this._cosyvoiceCampplusModelPath
+    }
+    if (this._referenceAudio != null) params.referenceAudio = this._referenceAudio
+    if (this._promptText != null) params.promptText = String(this._promptText)
+    if (this._voice) params.voice = this._voice
+    if (this._seed != null) params.seed = this._seed | 0
+    if (this._threads != null) params.threads = this._threads | 0
+    if (this._nGpuLayers != null) params.nGpuLayers = this._nGpuLayers | 0
+    if (this._outputSampleRate != null) params.outputSampleRate = this._outputSampleRate | 0
+    if (this._cfmSteps != null) params.cfmSteps = this._cfmSteps | 0
+    if (this._streamChunkTokens != null) params.streamChunkTokens = this._streamChunkTokens | 0
+    if (this._streamFirstChunkTokens != null) {
+      params.streamFirstChunkTokens = this._streamFirstChunkTokens | 0
+    }
+    if (this._streamLeftContextTokens != null) {
+      params.streamLeftContextTokens = this._streamLeftContextTokens | 0
+    }
+    if (this._config?.useGPU != null) params.useGPU = !!this._config.useGPU
+    if (this._backendsDir) params.backendsDir = this._backendsDir
+    return params
   }
 
   _buildChatterboxParams() {
@@ -1145,8 +1242,10 @@ class TTSGgml {
 
   static ENGINE_CHATTERBOX = ENGINE_CHATTERBOX
   static ENGINE_SUPERTONIC = ENGINE_SUPERTONIC
+  static ENGINE_COSYVOICE3 = ENGINE_COSYVOICE3
 }
 
 module.exports = TTSGgml
 module.exports.ENGINE_CHATTERBOX = ENGINE_CHATTERBOX
 module.exports.ENGINE_SUPERTONIC = ENGINE_SUPERTONIC
+module.exports.ENGINE_COSYVOICE3 = ENGINE_COSYVOICE3

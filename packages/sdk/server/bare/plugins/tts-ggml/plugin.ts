@@ -18,9 +18,11 @@ import {
   type ResolveResult,
   type TtsChatterboxLoadConfig,
   type TtsSupertonicLoadConfig,
+  type TtsCosyvoice3LoadConfig,
   type TtsRuntimeConfig,
   type TtsChatterboxRuntimeConfig,
-  type TtsSupertonicRuntimeConfig
+  type TtsSupertonicRuntimeConfig,
+  type TtsCosyvoice3RuntimeConfig
 } from '@/schemas'
 import { createStreamLogger, registerAddonLogger } from '@/logging'
 import { TtsArtifactsRequiredError, LegacyTtsModelDeprecatedError } from '@/utils/errors-server'
@@ -118,6 +120,36 @@ async function resolveSupertonicConfig(
   )
 
   return { config: runtime, artifacts: lavasrArtifacts }
+}
+
+async function resolveCosyvoice3Config(
+  config: TtsCosyvoice3LoadConfig,
+  ctx: ResolveContext
+): Promise<ResolveResult<TtsRuntimeConfig>> {
+  rejectLegacyOnnxFields(config)
+
+  const { flowModelSrc, hiftModelSrc, s3tokModelSrc, campplusModelSrc, referenceAudioSrc, ...runtime } =
+    config
+
+  const resolve = ctx.resolveModelPath
+  const [flowPath, hiftPath, s3tokPath, campplusPath, referenceAudioPath] = await Promise.all([
+    flowModelSrc ? resolve(flowModelSrc) : Promise.resolve(undefined),
+    hiftModelSrc ? resolve(hiftModelSrc) : Promise.resolve(undefined),
+    s3tokModelSrc ? resolve(s3tokModelSrc) : Promise.resolve(undefined),
+    campplusModelSrc ? resolve(campplusModelSrc) : Promise.resolve(undefined),
+    referenceAudioSrc ? resolve(referenceAudioSrc) : Promise.resolve(undefined)
+  ])
+
+  return {
+    config: runtime,
+    artifacts: {
+      ...(flowPath ? { flowPath } : {}),
+      ...(hiftPath ? { hiftPath } : {}),
+      ...(s3tokPath ? { s3tokPath } : {}),
+      ...(campplusPath ? { campplusPath } : {}),
+      ...(referenceAudioPath ? { referenceAudioPath } : {})
+    }
+  }
 }
 
 // Build the optional LavaSR `files` entries from resolved artifacts. Supplying
@@ -219,6 +251,65 @@ function createSupertonicModel(
   return { model }
 }
 
+function createCosyvoice3Model(
+  modelId: string,
+  config: TtsCosyvoice3RuntimeConfig,
+  params: CreateModelParams,
+  artifacts: Record<string, string | undefined>
+): PluginModelResult {
+  // The primary model source is the LLM GGUF; the remaining sub-models are
+  // discovered in its directory (or overridden by resolved component paths).
+  const llmModel = params.modelPath
+  if (!llmModel) {
+    throw new TtsArtifactsRequiredError()
+  }
+  const cosyvoiceModelDir = dirname(llmModel)
+  const referenceAudioPath = artifacts['referenceAudioPath']
+
+  const logger = createStreamLogger(modelId, ModelType.ttsGgml)
+  registerAddonLogger(modelId, ModelType.ttsGgml, logger)
+
+  const model = new TTSGgml({
+    engine: TTSGgml.ENGINE_COSYVOICE3,
+    files: {
+      cosyvoiceModelDir,
+      cosyvoiceLlmModel: llmModel,
+      ...(artifacts['flowPath'] ? { cosyvoiceFlowModel: artifacts['flowPath'] } : {}),
+      ...(artifacts['hiftPath'] ? { cosyvoiceHiftModel: artifacts['hiftPath'] } : {}),
+      ...(artifacts['s3tokPath'] ? { cosyvoiceS3tokModel: artifacts['s3tokPath'] } : {}),
+      ...(artifacts['campplusPath'] ? { cosyvoiceCampplusModel: artifacts['campplusPath'] } : {})
+    },
+    ...(referenceAudioPath ? { referenceAudio: referenceAudioPath } : {}),
+    ...(config.promptText !== undefined ? { promptText: config.promptText } : {}),
+    ...(config.voice !== undefined ? { voice: config.voice } : {}),
+    ...(config.streamChunkTokens !== undefined
+      ? { streamChunkTokens: config.streamChunkTokens }
+      : {}),
+    ...(config.streamFirstChunkTokens !== undefined
+      ? { streamFirstChunkTokens: config.streamFirstChunkTokens }
+      : {}),
+    ...(config.streamLeftContextTokens !== undefined
+      ? { streamLeftContextTokens: config.streamLeftContextTokens }
+      : {}),
+    ...(config.cfmSteps !== undefined ? { cfmSteps: config.cfmSteps } : {}),
+    ...(config.threads !== undefined ? { threads: config.threads } : {}),
+    ...(config.nGpuLayers !== undefined ? { nGpuLayers: config.nGpuLayers } : {}),
+    ...(config.seed !== undefined ? { seed: config.seed } : {}),
+    config: {
+      language: config.language ?? 'en',
+      ...(config.useGPU !== undefined ? { useGPU: config.useGPU } : {}),
+      ...(config.outputSampleRate !== undefined
+        ? { outputSampleRate: config.outputSampleRate }
+        : {})
+    },
+    logger,
+    opts: { stats: true },
+    exclusiveRun: true
+  })
+
+  return { model }
+}
+
 export const ttsPlugin = definePlugin({
   modelType: ModelType.ttsGgml,
   displayName: 'TTS (GGML)',
@@ -232,6 +323,9 @@ export const ttsPlugin = definePlugin({
     if (ttsEngine === 'supertonic') {
       return resolveSupertonicConfig(cfg as TtsSupertonicLoadConfig, ctx)
     }
+    if (ttsEngine === 'cosyvoice3') {
+      return resolveCosyvoice3Config(cfg as TtsCosyvoice3LoadConfig, ctx)
+    }
     return resolveChatterboxConfig(cfg as TtsChatterboxLoadConfig, ctx)
   },
 
@@ -241,6 +335,9 @@ export const ttsPlugin = definePlugin({
 
     if (config.ttsEngine === 'supertonic') {
       return createSupertonicModel(params.modelId, config, params, artifacts)
+    }
+    if (config.ttsEngine === 'cosyvoice3') {
+      return createCosyvoice3Model(params.modelId, config, params, artifacts)
     }
 
     return createChatterboxModel(params.modelId, config, params, artifacts)

@@ -66,6 +66,22 @@ export const TTS_SUPERTONIC_LANGUAGES = [
   'vi' // Vietnamese
 ] as const
 
+// CosyVoice3 supported languages. Provisional list for the iteration-1 scaffold
+// per the Fun-CosyVoice3-0.5B model card (9-language); refine once confirmed
+// against the released tokenizer. All entries are already covered by the
+// Chatterbox set, so TTS_LANGUAGES needs no additions for CosyVoice3.
+export const TTS_COSYVOICE3_LANGUAGES = [
+  'zh', // Chinese
+  'en', // English
+  'ja', // Japanese
+  'ko', // Korean
+  'de', // German
+  'es', // Spanish
+  'fr', // French
+  'it', // Italian
+  'ru' // Russian
+] as const
+
 // Supertonic languages not already present in the Chatterbox set, used to keep
 // TTS_LANGUAGES a true union across engines without duplicates.
 const TTS_SUPERTONIC_ONLY_LANGUAGES = [
@@ -93,6 +109,7 @@ export const TTS_LANGUAGES = [
 
 const ttsChatterboxLanguageSchema = z.enum(TTS_CHATTERBOX_LANGUAGES)
 const ttsSupertonicLanguageSchema = z.enum(TTS_SUPERTONIC_LANGUAGES)
+const ttsCosyvoice3LanguageSchema = z.enum(TTS_COSYVOICE3_LANGUAGES)
 const ttsIntegerSchema = z.number().int()
 const ttsNonNegativeIntegerSchema = ttsIntegerSchema.nonnegative()
 const ttsPositiveIntegerSchema = ttsIntegerSchema.positive()
@@ -127,9 +144,32 @@ export const ttsSupertonicRuntimeConfigSchema = z.object({
   outputSampleRate: ttsOutputSampleRateSchema.optional()
 })
 
+// CosyVoice3 (Fun-CosyVoice3-0.5B / 1.5B). ITERATION 1 (SCAFFOLD): the native
+// engine is wired end-to-end but returns placeholder audio until the CPU
+// inference graphs land. CosyVoice3 is natively a token-by-token streaming
+// model, so the streaming controls mirror Chatterbox.
+export const ttsCosyvoice3RuntimeConfigSchema = z.object({
+  ttsEngine: z.literal('cosyvoice3'),
+  language: ttsCosyvoice3LanguageSchema,
+  voice: z.string().optional(),
+  useGPU: z.boolean().optional(),
+  // Zero-shot voice cloning: transcript of the reference audio.
+  promptText: z.string().optional(),
+  // Native streaming controls (speech-token hops through token2wav).
+  streamChunkTokens: ttsNonNegativeIntegerSchema.optional(),
+  streamFirstChunkTokens: ttsNonNegativeIntegerSchema.optional(),
+  streamLeftContextTokens: ttsNonNegativeIntegerSchema.optional(),
+  cfmSteps: ttsNonNegativeIntegerSchema.optional(),
+  threads: ttsPositiveIntegerSchema.optional(),
+  nGpuLayers: ttsIntegerSchema.optional(),
+  seed: ttsIntegerSchema.optional(),
+  outputSampleRate: ttsOutputSampleRateSchema.optional()
+})
+
 export const ttsRuntimeConfigSchema = z.discriminatedUnion('ttsEngine', [
   ttsChatterboxRuntimeConfigSchema,
-  ttsSupertonicRuntimeConfigSchema
+  ttsSupertonicRuntimeConfigSchema,
+  ttsCosyvoice3RuntimeConfigSchema
 ])
 
 // Optional LavaSR post-processing model sources, shared across engines. Supply
@@ -153,6 +193,17 @@ export const ttsChatterboxLoadConfigSchema = ttsChatterboxRuntimeConfigSchema.ex
 
 export const ttsSupertonicLoadConfigSchema = ttsSupertonicRuntimeConfigSchema.extend({
   ...ttsLavasrLoadFieldsShape
+})
+
+// CosyVoice3 load config. The primary model source (the model's `modelSrc`)
+// carries the LLM GGUF; the remaining sub-models resolve from these optional
+// sources (or are discovered next to the LLM in the same directory).
+export const ttsCosyvoice3LoadConfigSchema = ttsCosyvoice3RuntimeConfigSchema.extend({
+  flowModelSrc: modelSrcInputSchema.optional(),
+  hiftModelSrc: modelSrcInputSchema.optional(),
+  s3tokModelSrc: modelSrcInputSchema.optional(),
+  campplusModelSrc: modelSrcInputSchema.optional(),
+  referenceAudioSrc: modelSrcInputSchema.optional()
 })
 
 type TtsTokenizerAssetRefinementInput = {
@@ -186,7 +237,11 @@ function refineChatterboxTokenizerAssets(
 }
 
 export const ttsLoadConfigSchema = z
-  .discriminatedUnion('ttsEngine', [ttsChatterboxLoadConfigSchema, ttsSupertonicLoadConfigSchema])
+  .discriminatedUnion('ttsEngine', [
+    ttsChatterboxLoadConfigSchema,
+    ttsSupertonicLoadConfigSchema,
+    ttsCosyvoice3LoadConfigSchema
+  ])
   .superRefine(refineChatterboxTokenizerAssets)
 
 // === Legacy ONNX modelConfig fields (deprecated) ===
@@ -226,7 +281,8 @@ const legacyTtsOnnxFieldsShape = LEGACY_TTS_ONNX_MODEL_CONFIG_FIELDS.reduce<
 export const ttsConfigSchema = z
   .discriminatedUnion('ttsEngine', [
     ttsChatterboxLoadConfigSchema.extend(legacyTtsOnnxFieldsShape).strict(),
-    ttsSupertonicLoadConfigSchema.extend(legacyTtsOnnxFieldsShape).strict()
+    ttsSupertonicLoadConfigSchema.extend(legacyTtsOnnxFieldsShape).strict(),
+    ttsCosyvoice3LoadConfigSchema.extend(legacyTtsOnnxFieldsShape).strict()
   ])
   .superRefine(refineChatterboxTokenizerAssets)
 
@@ -286,8 +342,10 @@ export const textToSpeechStreamResponseSchema = z.object({
 export type TtsLanguage = (typeof TTS_LANGUAGES)[number]
 export type TtsChatterboxLanguage = (typeof TTS_CHATTERBOX_LANGUAGES)[number]
 export type TtsSupertonicLanguage = (typeof TTS_SUPERTONIC_LANGUAGES)[number]
+export type TtsCosyvoice3Language = (typeof TTS_COSYVOICE3_LANGUAGES)[number]
 export type TtsChatterboxLoadConfig = z.infer<typeof ttsChatterboxLoadConfigSchema>
 export type TtsSupertonicLoadConfig = z.infer<typeof ttsSupertonicLoadConfigSchema>
+export type TtsCosyvoice3LoadConfig = z.infer<typeof ttsCosyvoice3LoadConfigSchema>
 export type TtsLoadConfig = z.infer<typeof ttsLoadConfigSchema>
 /** @deprecated Use {@link TtsChatterboxLoadConfig} */
 export type TtsChatterboxConfig = TtsChatterboxLoadConfig
@@ -295,6 +353,7 @@ export type TtsChatterboxConfig = TtsChatterboxLoadConfig
 export type TtsSupertonicConfig = TtsSupertonicLoadConfig
 export type TtsChatterboxRuntimeConfig = z.infer<typeof ttsChatterboxRuntimeConfigSchema>
 export type TtsSupertonicRuntimeConfig = z.infer<typeof ttsSupertonicRuntimeConfigSchema>
+export type TtsCosyvoice3RuntimeConfig = z.infer<typeof ttsCosyvoice3RuntimeConfigSchema>
 export type TtsRuntimeConfig = z.infer<typeof ttsRuntimeConfigSchema>
 export type TtsConfig = z.infer<typeof ttsConfigSchema>
 export type TtsClientParamsInput = z.input<typeof ttsClientParamsSchema>
