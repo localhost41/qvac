@@ -520,10 +520,13 @@ class TTSGgml {
    * @param {boolean} [input.streamOutput=false] - Chunked streaming output
    * @param {string} [input.locale] - BCP-47 locale for chunking when `streamOutput`
    * @param {number} [input.maxChunkScalars] - Max graphemes per chunk when `streamOutput`
-   * @param {AbortSignal} [input.signal] - Cancels the (non-streaming) run: when the
-   *   signal aborts, `response.await()` rejects with the abort reason.  An
+   * @param {AbortSignal} [input.signal] - Cancels a **non-streaming** `run()`: when
+   *   the signal aborts, `response.await()` rejects with the abort reason.  An
    *   already-aborted signal rejects deterministically without dispatching the
    *   engine (no native interrupt), so cancellation is race-free on fast hardware.
+   *   **Ignored when `streamOutput: true`** (and on `runStream` / `runStreaming`):
+   *   the streaming path does not thread the signal, so passing it there is a
+   *   silent no-op — neither cancels nor errors.
    */
   async run(input) {
     if (input && typeof input === 'object' && input.streamOutput === true) {

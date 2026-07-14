@@ -102,6 +102,14 @@ test(
   }
 )
 
+// Coverage note: this exercises the AbortSignal plumbing, not the native
+// mid-flight cancel path. An already-aborted signal makes `run()` short-circuit
+// before `addon.runJob` (the model loads but never synthesizes), so
+// `response.cancel()` interrupting an in-flight native Supertonic job is
+// intentionally NOT covered here. That native teardown leak (cancelling
+// mid-synthesis wedges macOS process exit) is the underlying bug and is tracked
+// as a separate follow-up (see the PR description); restore native cancel
+// coverage once it is fixed.
 test(
   'Supertonic TTS (ggml): aborting the run via signal rejects the response',
   { timeout: 600000 },
