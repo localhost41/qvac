@@ -1,19 +1,16 @@
 vcpkg_from_github(
   OUT_SOURCE_PATH SOURCE_PATH
-  REPO tetherto/qvac-fabric-llm.cpp
-  # QVAC-21297 VALIDATION OVERLAY — pinned to the qvac-fabric PR #170 head
-  # feat/opencl-vision-encoder-qwen3vl-s25 @ fe61104bb (squashed; byte-identical
-  # tree to the benchmarked 19c175590) = temp-9341 (e9ad5fc9f) + PR #170's OpenCL
-  # vision-encoder fixes + the PR-review follow-ups: the flash-attn tile-loop
-  # barrier/divergence fix ported to the f16 & f32_f16 sibling kernels (the
-  # f32_f16 kernel the Qwen3-VL vision tower dispatches) + the ggml_cl_upscale
-  # zero-source-dim guard. (The earlier null-mask FA assert was dropped — it
-  # aborts the legitimate bidirectional encoder.) NO QVAC-21320 / PR #174 Mali
-  # Vulkan opts. SHA512 is the GitHub source-tarball hash for this REF. Replace
-  # with `REF v${VERSION}` + the tag SHA512 in the registry PR (Phase B1), and
-  # delete this overlay from the consumers in the landing PR (Phase B2).
-  REF fe61104bb20601c70d868aecb8ff29fa05ce8c93
-  SHA512 86b09335316a8b41e854b91f548281ab8c2c84a4459e2a6c4692788922842d8a8f1588600dcd3d65e7f6f711ec87cb7809053be38ba03fa5472652c5e102d90b
+  REPO makaveli10/qvac-ext-lib-llama.cpp
+  # QVAC-9840 BENCHMARK OVERLAY — pinned to qvac-fabric PR #176 head (b9840 rebase).
+  # makaveli10/qvac-ext-lib-llama.cpp @ f1edb5969 (branch qvac-b9840) is the fork the
+  # cross-repo PR #176 "Rebase b9840" is opened from: qvac-fabric rebased onto upstream
+  # llama.cpp b9840, targeting the temp-9840 base. It already carries the
+  # null-mask=bidirectional OpenCL vision-encoder fix (same as PR #170) plus a newer
+  # flash-attn q-chunking path. Benchmarked here (S25 / Adreno 830 OpenCL, Qwen3.5-0.8B
+  # mmproj=both) to validate GPU-projector accuracy parity on b9840 and compare
+  # vision-encode perf vs fixed-9341 (QVAC-21297). SHA512 = GitHub source-tarball hash.
+  REF f1edb5969e1c7b57e854dac78c80546457993f6b
+  SHA512 e1946d14e5bb6966bc298ca6cf99bc961f85fa93bd4e32fdf8973a0b26cdc16bb56b96d47332e51d7b76071c60c369b6caef1559374bfce83b1d555b5fa3d028
 )
 
 # Upstream CMake options only — passed through to vcpkg_cmake_configure.
