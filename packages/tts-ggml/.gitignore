@@ -111,10 +111,6 @@ benchmarks/results/*.raw
 # Local perf-report output written by test/utils/perf-helper.js during test runs
 test/results/
 
-# Generated integration-test bundle + exit-code sentinel (see run-tests.sh)
-test/integration/all.js
-test/integration/.exit-code
-
 benchmarks/client/poetry.lock
 benchmarks/client/venv
 benchmarks/client/__pycache__
