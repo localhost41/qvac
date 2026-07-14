@@ -1,4 +1,6 @@
 {
+  "name": "transcription-whispercpp",
+  "version": "0.12.0",
   "dependencies": [
     {
       "name": "qvac-lib-inference-addon-cpp",
