@@ -1,19 +1,16 @@
 vcpkg_from_github(
   OUT_SOURCE_PATH SOURCE_PATH
   REPO tetherto/qvac-fabric-llm.cpp
-  # QVAC-21297 VALIDATION OVERLAY — pinned to the qvac-fabric PR #170 head
-  # feat/opencl-vision-encoder-qwen3vl-s25 @ fe61104bb (squashed; byte-identical
-  # tree to the benchmarked 19c175590) = temp-9341 (e9ad5fc9f) + PR #170's OpenCL
-  # vision-encoder fixes + the PR-review follow-ups: the flash-attn tile-loop
-  # barrier/divergence fix ported to the f16 & f32_f16 sibling kernels (the
-  # f32_f16 kernel the Qwen3-VL vision tower dispatches) + the ggml_cl_upscale
-  # zero-source-dim guard. (The earlier null-mask FA assert was dropped — it
-  # aborts the legitimate bidirectional encoder.) NO QVAC-21320 / PR #174 Mali
-  # Vulkan opts. SHA512 is the GitHub source-tarball hash for this REF. Replace
-  # with `REF v${VERSION}` + the tag SHA512 in the registry PR (Phase B1), and
-  # delete this overlay from the consumers in the landing PR (Phase B2).
-  REF fe61104bb20601c70d868aecb8ff29fa05ce8c93
-  SHA512 86b09335316a8b41e854b91f548281ab8c2c84a4459e2a6c4692788922842d8a8f1588600dcd3d65e7f6f711ec87cb7809053be38ba03fa5472652c5e102d90b
+  # TEMP-9341-OPT BENCHMARK OVERLAY — pinned to the temp-9341 branch HEAD
+  # @ 55325c0c8, which carries ALL the merged optimization work on the b9341
+  # line: PR #170 (OpenCL vision-encoder FA barrier + upscale guard), PR #174
+  # (Mali/Vulkan opts), PR #172 (Gemma-4 token handling), PR #181 (clip FA
+  # auto). This is the fully-optimized 9341 baseline used as the comparison
+  # target for the b9840 rebase benchmark (qvac-fabric-9840-benchmark.md).
+  # 9341-era API (mtmd 3-arg / llama::common) so the stock addon builds
+  # against it unchanged. SHA512 is the GitHub source-tarball hash for this REF.
+  REF 55325c0c825352967af6cf8855b1da4e93171009
+  SHA512 bc02eda7e8d4543b8d2f2c2aee555b54aac60ea72174ec7052055d4beb5a91e1bd60a46703ab4ba48e3ecba76bb182a183de138ced66e8f5dc1c9e173197cdb0
 )
 
 # Upstream CMake options only — passed through to vcpkg_cmake_configure.
