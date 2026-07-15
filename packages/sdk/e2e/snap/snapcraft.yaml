@@ -10,7 +10,9 @@ confinement: strict
 
 apps:
   qvac-sdk-e2e:
-    command: app/QVACSDKElectronE2E
+    # Strict Snap confinement provides the outer sandbox. Chromium's nested
+    # credential sandbox is blocked by Snap seccomp on hosted runners.
+    command: app/QVACSDKElectronE2E --no-sandbox
     extensions:
       - gnome
     plugs:
