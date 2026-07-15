@@ -426,7 +426,7 @@ jobs:
       platforms: Android
       # QVAC-21297: S25-Ultra-only matrix (Adreno 830 / OpenCL) — replaces the default
       # S25 Ultra + Pixel 9 so the OpenCL vision-encoder benchmark runs on Adreno, not Mali.
-      android_flagship_models: 'S25 Ultra'
+      android_flagship_models: 'Pixel 9'
       # Select ONLY our test via the shard override (no edits to the committed
       # test-groups.json / perf-tests.json). qvac_perf_only=false so the override isn't
       # intersected with perf-tests.json (which we don't touch).
