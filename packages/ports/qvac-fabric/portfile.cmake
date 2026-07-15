@@ -204,6 +204,11 @@ vcpkg_cmake_configure(
     -DLLAMA_BUILD_TOOLS=OFF
     -DLLAMA_BUILD_EXAMPLES=OFF
     -DLLAMA_BUILD_SERVER=OFF
+    # b9840 adds the unified `llama-app` binary (option LLAMA_BUILD_APP, default
+    # LLAMA_STANDALONE=ON in the vcpkg standalone build). The addon consumes only
+    # the libraries, and app/ fails to find common/tool headers (build-info.h,
+    # arg.h) here — disable it.
+    -DLLAMA_BUILD_APP=OFF
     -DLLAMA_ALL_WARNINGS=OFF
     ${LLAMA_OPTIONS}
     ${PLATFORM_OPTIONS}
