@@ -980,8 +980,11 @@ void MtmdLlmContext::loadMedia(const std::vector<uint8_t>& media) {
         ADDON_ID, toString(UnableToLoadModel), errorMsg);
   }
 
+  // b9840: mtmd_helper_bitmap_init_from_buf gained a `placeholder` arg (false =
+  // decode real pixels) and now returns a mtmd_helper_bitmap_wrapper; take .bitmap
+  // (video_ctx is null for image input).
   mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_buf(
-      ctxVision_.get(), media.data(), media.size()));
+      ctxVision_.get(), media.data(), media.size(), false).bitmap);
   if (!bmp.ptr) {
     resetMedia();
     const char* errorMsg =
@@ -1013,8 +1016,9 @@ void MtmdLlmContext::loadMedia(const std::string& fname) {
         ADDON_ID, toString(UnableToLoadModel), errorMsg);
   }
 
+  // b9840: same signature/return change as the from_buf path above.
   mtmd::bitmap bmp(
-      mtmd_helper_bitmap_init_from_file(ctxVision_.get(), fname.c_str()));
+      mtmd_helper_bitmap_init_from_file(ctxVision_.get(), fname.c_str(), false).bitmap);
   if (!bmp.ptr) {
     resetMedia();
     std::string errorMsg = string_format(
