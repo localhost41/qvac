@@ -12,7 +12,7 @@ apps:
   qvac-sdk-e2e:
     # Strict Snap confinement provides the outer sandbox. Chromium's nested
     # credential sandbox is blocked by Snap seccomp on hosted runners.
-    command: app/QVACSDKElectronE2E --no-sandbox
+    command: app/QVACSDKElectronE2E --no-sandbox --disable-dev-shm-usage
     extensions:
       - gnome
     plugs:
