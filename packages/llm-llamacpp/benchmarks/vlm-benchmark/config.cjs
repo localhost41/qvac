@@ -129,7 +129,7 @@ module.exports = {
   // Farm projector cpu-vs-gpu benchmark (QVAC-21257).
   mmprojGpu: 'both',
   // Single VLM used by mmproj-compare (mmprojGpu='both'); reuses MODEL_2's blobs.
-  mmprojModel: MODEL_2,
+  mmprojModel: GEMMA_MODEL,
 
   // ════════════════════════ PRESET — how much is run ════════════════════════
   // A preset is purely the run size (tasks × samples × repeats); it is independent of
