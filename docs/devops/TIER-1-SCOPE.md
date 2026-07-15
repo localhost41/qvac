@@ -48,6 +48,12 @@ human remembering to run a checklist.
 - **Fallback:** the `qv-notice-generate` compliance SKILL
   ([`.cursor/skills/qv-notice-generate`](../../.cursor/skills/qv-notice-generate/SKILL.md))
   handles the long tail the gate cannot classify and full transitive audits.
+- **Coverage limitation:** package lockfiles are gitignored in `qvac`, so the
+  gate reads a manifest-only dependency graph and classifies **direct/declared
+  deps only, not the full transitive tree** — a disallowed transitive license
+  can still pass. Full transitive coverage is the SKILL fallback's job. Resolve
+  (commit lockfiles or schedule a SKILL audit) before promoting this gate from
+  warn-only to a required blocking check.
 - **Rollout stage:** **warn-only (shadow mode)** — annotates PRs without
   blocking. Promotion to a required blocking status check is a follow-up, gated
   on shadow-mode telemetry (false-positive rate, time-to-resolve) and TL

@@ -15,6 +15,13 @@ name: License compliance
 # context (it only reads the dependency diff and, for same-repo PRs, upserts one
 # comment), so the "pwn request" surface of `pull_request_target` buys nothing.
 #
+# Coverage limitation: package lockfiles are gitignored in this repo, so
+# GitHub's dependency graph is manifest-only and this gate classifies direct /
+# declared dependencies, NOT the full transitive tree — a disallowed transitive
+# license can still pass. Full transitive resolution is the compliance SKILL's
+# job (run before releases / on a schedule). See
+# tetherto/qvac-actions/docs/license-compliance-ci.md "Known limitation".
+#
 # The compliance SKILL (`.cursor/skills/qv-notice-generate`) is the human
 # fallback for the long tail this deterministic gate cannot classify.
 
@@ -38,7 +45,7 @@ jobs:
     # reusable workflow's release tag is being cut. Repin to the 0.3.0 tag's
     # immutable commit SHA (freeze-and-pin convention, never `@main`) once
     # tetherto/qvac-actions#12 merges and the tag is published.
-    uses: tetherto/qvac-actions/.github/workflows/public-reusable-license.yml@0f4f710756ffb063d7b81686b84271d6601052ae # pending 0.3.0
+    uses: tetherto/qvac-actions/.github/workflows/public-reusable-license.yml@ce61672c6a49861ee5ff2e5e6617e4f0df665d37 # pending 0.3.0
     permissions:
       contents: read
       pull-requests: write
