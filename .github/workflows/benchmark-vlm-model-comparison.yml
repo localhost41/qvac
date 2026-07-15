@@ -424,9 +424,10 @@ jobs:
       fixture_images_uri: s3://tether-ai-dev/vlm-benchmark/
       # Android only — the benchmark targets Android flagships; skip iOS.
       platforms: Android
-      # QVAC-21297: S25-Ultra-only matrix (Adreno 830 / OpenCL) — replaces the default
-      # S25 Ultra + Pixel 9 so the OpenCL vision-encoder benchmark runs on Adreno, not Mali.
-      android_flagship_models: 'S25 Ultra'
+      # b9840 Pixel-9 variant: Pixel-9-only matrix (Tensor G4 / Mali-G715 / Vulkan) —
+      # replaces the default S25 Ultra + Pixel 9 so this run benchmarks the b9840
+      # vision projector on Mali/Vulkan (the counterpart to the S25/Adreno-OpenCL branch).
+      android_flagship_models: 'Pixel 9'
       # Select ONLY our test via the shard override (no edits to the committed
       # test-groups.json / perf-tests.json). qvac_perf_only=false so the override isn't
       # intersected with perf-tests.json (which we don't touch).
