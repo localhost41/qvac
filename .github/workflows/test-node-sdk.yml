@@ -140,6 +140,7 @@ jobs:
       MQTT_PORT: ${{ secrets.MQTT_PORT }}
       MQTT_USERNAME: ${{ secrets.MQTT_USERNAME }}
       MQTT_PASSWORD: ${{ secrets.MQTT_PASSWORD }}
+      QVAC_TEST_SNAP_BUILD_MODE: ${{ startsWith(matrix.os, 'ubuntu-') && 'destructive' || 'lxd' }}
     steps:
       - name: Manual Workspace Cleanup
         run: rm -rf "$GITHUB_WORKSPACE" && mkdir -p "$GITHUB_WORKSPACE"
@@ -326,13 +327,15 @@ jobs:
           if ! command -v snapcraft; then
             sudo snap install snapcraft --classic
           fi
-          if ! command -v lxc; then
-            echo "::error::LXD is required for non-destructive Snap builds on this runner"
-            exit 1
+          if [ "$QVAC_TEST_SNAP_BUILD_MODE" = "lxd" ]; then
+            if ! command -v lxc; then
+              echo "::error::LXD is required for non-destructive Snap builds on this runner"
+              exit 1
+            fi
+            lxc info
           fi
           snap version
           snapcraft --version
-          lxc info
 
       - name: Build first Snap revision
         if: inputs.consumer == 'snap'
@@ -369,16 +372,32 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
         run: sudo snap install --dangerous snap/dist/qvac-sdk-e2e.snap
 
+      - name: Determine Snap model requirements
+        id: snap-model-requirements
+        if: inputs.consumer == 'snap'
+        shell: node {0}
+        env:
+          TEST_FILTER: ${{ inputs.filter }}
+        run: |
+          const fs = require('fs');
+          const filters = (process.env.TEST_FILTER || '')
+            .split(',')
+            .map((filter) => filter.trim())
+            .filter(Boolean);
+          const requiresModels =
+            filters.length === 0 || filters.some((filter) => !filter.startsWith('snap-storage'));
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `required=${requiresModels}\n`);
+
       - name: Restore Snap models cache
         id: snap-models-cache
-        if: inputs.consumer == 'snap' && inputs.cache-models != false
+        if: inputs.consumer == 'snap' && steps.snap-model-requirements.outputs.required == 'true' && inputs.cache-models != false
         uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # 5.0.4
         with:
           path: ~/snap/qvac-sdk-e2e/common/.qvac/models
           key: qvac-snap-models-${{ hashFiles('packages/sdk/models/registry/models.ts') }}
 
       - name: Bootstrap models inside Snap
-        if: inputs.consumer == 'snap' && steps.snap-models-cache.outputs.cache-hit != 'true'
+        if: inputs.consumer == 'snap' && steps.snap-model-requirements.outputs.required == 'true' && steps.snap-models-cache.outputs.cache-hit != 'true'
         working-directory: ${{ inputs.working-directory }}
         run: >-
           npx qvac-test run:bootstrap:snap
@@ -387,7 +406,7 @@ jobs:
           --skip-snap-install
 
       - name: Save Snap models cache
-        if: inputs.consumer == 'snap' && steps.snap-models-cache.outputs.cache-hit != 'true' && inputs.cache-models != false
+        if: inputs.consumer == 'snap' && steps.snap-model-requirements.outputs.required == 'true' && steps.snap-models-cache.outputs.cache-hit != 'true' && inputs.cache-models != false
         uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # 5.0.4
         with:
           path: ~/snap/qvac-sdk-e2e/common/.qvac/models

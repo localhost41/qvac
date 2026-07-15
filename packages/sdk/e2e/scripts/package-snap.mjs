@@ -14,6 +14,7 @@ const packagedSnapApp = join(electronDist, 'app')
 const stableArtifact = resolve(projectDir, snapConfig.artifactPath)
 const artifactDir = dirname(stableArtifact)
 const electronOutput = join(projectDir, 'out', `${electronConfig.appName}-linux-${process.arch}`)
+const snapBuildMode = process.env.QVAC_TEST_SNAP_BUILD_MODE ?? 'lxd'
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
@@ -50,7 +51,13 @@ for (const fileName of readdirSync(snapDir)) {
   if (fileName.endsWith('.snap')) rmSync(join(snapDir, fileName), { force: true })
 }
 
-run('snapcraft', ['--use-lxd'], snapDir)
+if (snapBuildMode === 'lxd') {
+  run('snapcraft', ['--use-lxd'], snapDir)
+} else if (snapBuildMode === 'destructive') {
+  run('sudo', ['snapcraft', '--destructive-mode'], snapDir)
+} else {
+  throw new Error(`Unsupported QVAC_TEST_SNAP_BUILD_MODE: ${snapBuildMode}`)
+}
 
 const builtArtifact = readdirSync(snapDir).find((fileName) => fileName.endsWith('.snap'))
 if (!builtArtifact) {
