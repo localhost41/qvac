@@ -128,8 +128,9 @@ module.exports = {
   // this default governs the on-device run. Set to 'both' for the Android Device
   // Farm projector cpu-vs-gpu benchmark (QVAC-21257).
   mmprojGpu: 'both',
-  // Single VLM used by mmproj-compare (mmprojGpu='both'); reuses MODEL_2's blobs.
-  mmprojModel: MODEL_2,
+  // Single VLM used by mmproj-compare (mmprojGpu='both'). Gemma-4-E2B-it
+  // (Q4_K_M main + bf16 mmproj) for the b9840 Gemma vision-encoder benchmark.
+  mmprojModel: GEMMA_MODEL,
 
   // ════════════════════════ PRESET — how much is run ════════════════════════
   // A preset is purely the run size (tasks × samples × repeats); it is independent of
@@ -138,7 +139,7 @@ module.exports = {
   //   QVAC_VLM_SAMPLES→samplesPerTask · QVAC_VLM_REPEATS→repeats
   //   QVAC_VLM_DEVICES→devices (csv) · QVAC_VLM_TASKS→tasks (csv)
   // `devices: null` = CPU + GPU where applicable; `tasks: null` = all fixture tasks.
-  defaultPreset: 'base',
+  defaultPreset: 'smoke',
 
   presets: {
     // smoke — 1 task, 1 image, 1 repeat: a single inference per config (wiring check).
