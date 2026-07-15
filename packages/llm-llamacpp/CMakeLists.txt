@@ -113,7 +113,7 @@ endif()
     ${inference-addon-llama}
     PRIVATE
       llama::llama
-      llama::common
+      llama::llama-common
       llama::mtmd
       nlohmann_json::nlohmann_json
       unofficial::concurrentqueue::concurrentqueue
