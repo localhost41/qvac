@@ -139,7 +139,7 @@ module.exports = {
   //   QVAC_VLM_SAMPLES→samplesPerTask · QVAC_VLM_REPEATS→repeats
   //   QVAC_VLM_DEVICES→devices (csv) · QVAC_VLM_TASKS→tasks (csv)
   // `devices: null` = CPU + GPU where applicable; `tasks: null` = all fixture tasks.
-  defaultPreset: 'smoke',
+  defaultPreset: 'base',
 
   presets: {
     // smoke — 1 task, 1 image, 1 repeat: a single inference per config (wiring check).
