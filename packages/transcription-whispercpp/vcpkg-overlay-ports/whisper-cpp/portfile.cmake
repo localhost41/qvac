@@ -1,11 +1,11 @@
 # whisper-cpp OVERLAY (do-not-merge) to CI-test transcription-whispercpp against the unmerged
-# whisper PR #91 (REF 9ac38a7b) + ggml PR #42; mirrors the registry portfile, REF/SHA512 repointed.
+# whisper PR #91 (REF 65699b26, fused-QKV repack fix) + ggml PR #42; mirrors the registry portfile.
 #
 vcpkg_from_github(
   OUT_SOURCE_PATH SOURCE_PATH
   REPO tetherto/qvac-ext-lib-whisper.cpp
-  REF 9ac38a7ba62aa64aeff73fbcf84f955c674f171b
-  SHA512 21ddafc925680723eebce2b763a6b6b33aa88e77c4989da9b1c320c115cf1a6669ea304975595eaa0147a1d09f5ec16e8cfc69b1c3c63fb871db62d40a81b0af
+  REF 65699b26
+  SHA512 063afbf0cb1aafaec540ae3b1247eb5a9ea4f47412c44d04532afc1cf0c437d77d8219b4f8ffdfab7c7f440beeb8aa9497830fd3ab67d63488a6eb3df92bfe86
   HEAD_REF master
   PATCHES
     patches/0001-move-gnuinstalldirs-before-add-subdirectory-src.patch
