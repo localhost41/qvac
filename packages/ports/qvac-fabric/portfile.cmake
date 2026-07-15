@@ -38,30 +38,14 @@ if(NOT BUILD_GPU_BACKENDS)
   message(STATUS "qvac-fabric: gpu-backends feature OFF — building CPU-only ggml (no Metal/Vulkan/CUDA/OpenCL)")
 endif()
 
-if (VCPKG_TARGET_IS_ANDROID AND BUILD_GPU_BACKENDS)
-  # NDK only comes with C headers.
-  # Make sure C++ header exists, it will be used by ggml tensor library.
-  # Need to determine installed vulkan version and download correct headers
-  include(${CMAKE_CURRENT_LIST_DIR}/android-vulkan-version.cmake)
-  detect_ndk_vulkan_version()
-  message(STATUS "Using Vulkan C++ wrappers from version: ${vulkan_version}")
-  file(DOWNLOAD
-    "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v${vulkan_version}.tar.gz"
-    "${SOURCE_PATH}/vulkan-sdk-${vulkan_version}.tar.gz"
-    TLS_VERIFY ON
-  )
-
-  file(ARCHIVE_EXTRACT
-    INPUT "${SOURCE_PATH}/vulkan-sdk-${vulkan_version}.tar.gz"
-    DESTINATION "${SOURCE_PATH}"
-    PATTERNS "*.hpp"
-  )
-
-  file(RENAME
-    "${SOURCE_PATH}/Vulkan-Headers-${vulkan_version}"
-    "${SOURCE_PATH}/ggml/src/ggml-vulkan/vulkan_cpp_wrapper"
-  )
-endif()
+# b9840's ggml-vulkan fetches the Android Vulkan-Hpp + SPIRV headers itself via
+# FetchContent (ggml/src/ggml-vulkan/CMakeLists.txt `if (ANDROID)`,
+# vulkan-sdk-1.4.350.1), so the manual vulkan_cpp_wrapper download this overlay
+# used for the b9341 line is obsolete and removed. All that's needed is to let
+# that FetchContent run: the registry vcpkg-cmake defaults
+# FETCHCONTENT_FULLY_DISCONNECTED=ON, which blocks it and the build fails with
+# `vulkan/vulkan.hpp file not found`. It's re-enabled for the Android GPU build
+# via -DFETCHCONTENT_FULLY_DISCONNECTED=OFF in PLATFORM_OPTIONS below.
 
 set(PLATFORM_OPTIONS)
 
@@ -167,6 +151,11 @@ endif()
 
 if (VCPKG_TARGET_IS_ANDROID AND BUILD_GPU_BACKENDS)
   list(APPEND PLATFORM_OPTIONS -DGGML_OPENCL=ON)
+  # b9840's ggml-vulkan pulls its Android Vulkan-Hpp + SPIRV headers via
+  # FetchContent (see note above); the registry vcpkg-cmake defaults
+  # FETCHCONTENT_FULLY_DISCONNECTED=ON, so allow the fetch here or ggml-vulkan
+  # fails to find <vulkan/vulkan.hpp>.
+  list(APPEND PLATFORM_OPTIONS -DFETCHCONTENT_FULLY_DISCONNECTED=OFF)
 endif()
 
 if(BUILD_GPU_BACKENDS AND NOT VCPKG_TARGET_IS_OSX AND NOT VCPKG_TARGET_IS_IOS)
