@@ -97,6 +97,32 @@ const GEMMA4_Q4 = {
     { license: 'Gemma', link: 'https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF' })
 }
 
+// QVAC-b9840 multidevice bench: the two extra main-LLM quant variants (both keep the
+// mmproj at Q8, so only the main quant differs vs GEMMA4_Q4 / MODEL_2). Same pinned
+// HF commits already used above (verified to contain the file at that SHA).
+const QWEN35_Q4 = {
+  label: 'qwen3.5-q4',
+  name: 'Qwen3.5-0.8B · Q4_K_M + mmproj-Q8',
+  ctx_size: '4096',
+  llm: hf('reg-qwen-unsloth-Q4_K_M.gguf', `unsloth/Qwen3.5-0.8B-GGUF@${SHA.qwenUnsloth.slice(0, 10)}`,
+    'unsloth/Qwen3.5-0.8B-GGUF', SHA.qwenUnsloth, 'Qwen3.5-0.8B-Q4_K_M.gguf', QWEN_REG),
+  mmproj: hf('reg-qwen-mradermacher-mmproj-Q8_0.gguf', `mradermacher/Qwen3.5-0.8B-GGUF@${SHA.qwenMrader.slice(0, 10)} · mmproj-Q8_0`,
+    'mradermacher/Qwen3.5-0.8B-GGUF', SHA.qwenMrader, 'Qwen3.5-0.8B.mmproj-Q8_0.gguf',
+    { license: 'Apache-2.0', link: 'https://huggingface.co/mradermacher/Qwen3.5-0.8B-GGUF' })
+}
+
+const GEMMA4_Q8 = {
+  label: 'gemma4-q8',
+  name: 'Gemma-4-E2B-it · Q8_0 + mmproj-Q8',
+  ctx_size: '4096',
+  llm: hf('reg-gemma4-e2b-Q8_0.gguf', `bartowski/google_gemma-4-E2B-it-GGUF@${SHA.gemmaBart.slice(0, 10)}`,
+    'bartowski/google_gemma-4-E2B-it-GGUF', SHA.gemmaBart, 'google_gemma-4-E2B-it-Q8_0.gguf',
+    { license: 'Gemma', link: 'https://huggingface.co/bartowski/google_gemma-4-E2B-it-GGUF' }),
+  mmproj: hf('reg-gemma4-e2b-mmproj-Q8_0.gguf', `ggml-org/gemma-4-E2B-it-GGUF@${SHA.gemmaGgml.slice(0, 10)} · mmproj-Q8_0`,
+    'ggml-org/gemma-4-E2B-it-GGUF', SHA.gemmaGgml, 'mmproj-gemma-4-E2B-it-Q8_0.gguf',
+    { license: 'Gemma', link: 'https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF' })
+}
+
 // ════════════════════ THE MODEL FOR SOURCE COMPARISON (several-sources mode) ════════════════════
 // One fixed VLM, run through every engine. Its blob filenames must match the names the
 // workflow's CLI step feeds to fabric-cli/upstream-cli.
@@ -132,6 +158,16 @@ module.exports = {
   base: MODEL_1.label,
   candidate: MODEL_2.label,
 
+  // ════════════════════════ mmproj projector backend ════════════════════════
+  // QVAC-21257: which backend runs the multimodal projector (vision encoder).
+  //   'both' — mmproj-compare: LLM ALWAYS on GPU; run the projector on CPU vs GPU as
+  //            the two on-device legs (the cpu/gpu axis becomes the PROJECTOR backend).
+  //   'cpu' / 'gpu' — LLM on GPU, projector pinned to that backend.
+  //   'auto' — main's original whole-model CPU-vs-GPU device axis.
+  // Overridable via QVAC_VLM_MMPROJ_GPU; the default here travels to phones in the
+  // pushed device config. See harness.cjs MMPROJ_GPU / 'mmproj-use-gpu'.
+  mmprojGpu: 'both',
+
   // ════════════════════════ MODEL CATALOG — known-good short names ════════════════════════
   // Convenience only — the matrix_models launch param also accepts ad-hoc
   // <llm-url>|<mmproj-url> pairs for ANY model with no catalog entry (see
@@ -140,8 +176,10 @@ module.exports = {
   catalog: {
     'qwen3.5-f16': MODEL_1,
     'qwen3.5-q8': MODEL_2,
+    'qwen3.5-q4': QWEN35_Q4,
     'qwen3.5-0.8b-q8': SOURCES_MODEL,
-    'gemma4-q4': GEMMA4_Q4
+    'gemma4-q4': GEMMA4_Q4,
+    'gemma4-q8': GEMMA4_Q8
   },
   // What runs when matrix_models is empty (two-models mode).
   defaultModels: ['qwen3.5-f16', 'qwen3.5-q8'],

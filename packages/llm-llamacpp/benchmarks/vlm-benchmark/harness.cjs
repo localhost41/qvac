@@ -68,6 +68,19 @@ if (!PRESET) {
 const MODE = env('QVAC_VLM_MODE') || config.mode || 'two-models'
 const SOURCE = env('QVAC_VLM_ENGINE') || config.engine || 'addon'
 
+// QVAC-21257: vision-projector backend for the mmproj CPU-vs-GPU comparison.
+//   'both' (default) → run each model with the LLM ALWAYS on GPU (gpu_layers=98) and
+//     the projector forced CPU vs GPU as the two legs. The on-device cpu/gpu axis then
+//     denotes the PROJECTOR backend (not whole-model), and the addon key
+//     'mmproj-use-gpu' selects it (LlamaModel.cpp mmprojUseGpuOverride).
+//   'cpu' / 'gpu' → LLM on GPU, projector pinned to that backend (single leg concept,
+//     still runs the device axis for whole-model context).
+//   'auto' → main's original whole-model device axis (no projector override).
+// Overridable per-target via QVAC_VLM_MMPROJ_GPU; baked default travels to phones in
+// the pushed device config.
+const MMPROJ_GPU = (env('QVAC_VLM_MMPROJ_GPU') || config.mmprojGpu || 'auto').toLowerCase()
+const MMPROJ_COMPARE = MMPROJ_GPU === 'both'
+
 // Active scenario (CONTRACT.md §2): the workload definition — its task list is
 // the task universe for this run. The runner executes the FIRST CSV token;
 // multi-scenario runs are reserved. Unknown/fixtureless scenarios fail fast.
@@ -342,14 +355,22 @@ function runModel (spec) {
       const inference = new LlmLlamacpp({
         files: { model: [path.join(dir, mainName)], projectionModel: path.join(dir, projName) },
         config: {
-          device,
-          gpu_layers: device === 'cpu' ? '0' : '98',
+          // mmproj=both: the LLM stays on GPU for BOTH legs; the loop's cpu/gpu is the
+          // PROJECTOR backend (selected via 'mmproj-use-gpu' below), not the whole model.
+          // Otherwise keep main's whole-model device axis.
+          device: MMPROJ_COMPARE ? 'gpu' : device,
+          gpu_layers: MMPROJ_COMPARE ? '98' : (device === 'cpu' ? '0' : '98'),
           temp: '0.0',
           seed: '42',
           ctx_size: spec.ctx_size,
           n_predict: String(nPredict),
           verbosity: '2', // surfaces `image slice encoded in N ms` on native stderr
           'reasoning-budget': '0', // disable Qwen3.5 thinking -> clean direct answers
+          ...(MMPROJ_COMPARE
+            ? { 'mmproj-use-gpu': device === 'gpu' ? 'true' : 'false' } // this leg's projector backend
+            : ((MMPROJ_GPU === 'cpu' || MMPROJ_GPU === 'gpu')
+                ? { 'mmproj-use-gpu': MMPROJ_GPU === 'gpu' ? 'true' : 'false' }
+                : {})),
           ...(BACKENDS_DIR ? { backendsDir: BACKENDS_DIR } : {}) // candidate/baseline build swap (scheduler)
         },
         logger: console,
