@@ -18,9 +18,11 @@ import {
   type ResolveResult,
   type TtsChatterboxLoadConfig,
   type TtsSupertonicLoadConfig,
+  type TtsCosyvoiceLoadConfig,
   type TtsRuntimeConfig,
   type TtsChatterboxRuntimeConfig,
-  type TtsSupertonicRuntimeConfig
+  type TtsSupertonicRuntimeConfig,
+  type TtsCosyvoiceRuntimeConfig
 } from '@/schemas'
 import { createStreamLogger, registerAddonLogger } from '@/logging'
 import { TtsArtifactsRequiredError, LegacyTtsModelDeprecatedError } from '@/utils/errors-server'
@@ -118,6 +120,16 @@ async function resolveSupertonicConfig(
   )
 
   return { config: runtime, artifacts: lavasrArtifacts }
+}
+
+function resolveCosyvoiceConfig(
+  config: TtsCosyvoiceLoadConfig
+): ResolveResult<TtsRuntimeConfig> {
+  rejectLegacyOnnxFields(config)
+  // CosyVoice3 has no extra model sources beyond the model directory (provided
+  // via `modelSrc` and resolved to params.modelPath), so the runtime config is
+  // the load config and there are no additional artifacts to resolve.
+  return { config, artifacts: {} }
 }
 
 // Build the optional LavaSR `files` entries from resolved artifacts. Supplying
@@ -219,6 +231,46 @@ function createSupertonicModel(
   return { model }
 }
 
+function createCosyvoiceModel(
+  modelId: string,
+  config: TtsCosyvoiceRuntimeConfig,
+  params: CreateModelParams
+): PluginModelResult {
+  const modelPath = params.modelPath
+  if (!modelPath) {
+    throw new TtsArtifactsRequiredError()
+  }
+  // CosyVoice3 loads a directory of GGUFs + tokenizer + baked voice; the
+  // registry stages the whole dir and modelPath points at a file inside it, so
+  // the model directory is its parent (mirrors the mecabDict dirname pattern).
+  const cosyvoiceModelDir = dirname(modelPath)
+
+  const logger = createStreamLogger(modelId, ModelType.ttsGgml)
+  registerAddonLogger(modelId, ModelType.ttsGgml, logger)
+
+  const model = new TTSGgml({
+    engine: TTSGgml.ENGINE_COSYVOICE3,
+    files: { cosyvoiceModelDir },
+    ...(config.promptText !== undefined ? { promptText: config.promptText } : {}),
+    ...(config.ttsNumInferenceSteps !== undefined
+      ? { numInferenceSteps: config.ttsNumInferenceSteps }
+      : {}),
+    ...(config.seed !== undefined ? { seed: config.seed } : {}),
+    ...(config.threads !== undefined ? { threads: config.threads } : {}),
+    config: {
+      language: config.language ?? 'en',
+      ...(config.outputSampleRate !== undefined
+        ? { outputSampleRate: config.outputSampleRate }
+        : {})
+    },
+    logger,
+    opts: { stats: true },
+    exclusiveRun: true
+  })
+
+  return { model }
+}
+
 export const ttsPlugin = definePlugin({
   modelType: ModelType.ttsGgml,
   displayName: 'TTS (GGML)',
@@ -232,6 +284,9 @@ export const ttsPlugin = definePlugin({
     if (ttsEngine === 'supertonic') {
       return resolveSupertonicConfig(cfg as TtsSupertonicLoadConfig, ctx)
     }
+    if (ttsEngine === 'cosyvoice3') {
+      return resolveCosyvoiceConfig(cfg as TtsCosyvoiceLoadConfig)
+    }
     return resolveChatterboxConfig(cfg as TtsChatterboxLoadConfig, ctx)
   },
 
@@ -241,6 +296,10 @@ export const ttsPlugin = definePlugin({
 
     if (config.ttsEngine === 'supertonic') {
       return createSupertonicModel(params.modelId, config, params, artifacts)
+    }
+
+    if (config.ttsEngine === 'cosyvoice3') {
+      return createCosyvoiceModel(params.modelId, config, params)
     }
 
     return createChatterboxModel(params.modelId, config, params, artifacts)

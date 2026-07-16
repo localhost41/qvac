@@ -27,6 +27,13 @@ declare interface TTSGgmlFiles {
   supertonicModelPath?: string
   supertonic?: string
   /**
+   * CosyVoice3 model directory: holds cosyvoice3-{llm,flow,hift}*.gguf +
+   * voice.gguf + vocab.json + merges.txt (assemble-cosyvoice3-model.py).
+   * Selects the CosyVoice3 engine.
+   */
+  cosyvoiceModelDir?: string
+  cosyvoiceDir?: string
+  /**
    * LavaSR enhancer GGUF: single-file Vocos bandwidth extension produced by
    * tts-cpp/scripts/convert-lavasr-enhancer-to-gguf.py. When supplied, output
    * is neurally upsampled to 48 kHz (the canonical way to enable enhancement;
@@ -113,8 +120,8 @@ declare interface TTSGgmlOptions {
   config?: TTSGgmlRuntimeConfig
   logger?: object
   lazySessionLoading?: boolean
-  /** Explicit engine selection ('chatterbox' | 'supertonic').  Auto-detected from `files` when omitted. */
-  engine?: 'chatterbox' | 'supertonic'
+  /** Explicit engine selection ('chatterbox' | 'supertonic' | 'cosyvoice3').  Auto-detected from `files` when omitted. */
+  engine?: 'chatterbox' | 'supertonic' | 'cosyvoice3'
   /** Chatterbox: voice-cloning reference audio path (wav). */
   referenceAudio?: string
   /** Chatterbox: directory of baked voice-conditioning tensors. */
@@ -139,10 +146,12 @@ declare interface TTSGgmlOptions {
   voice?: string
   /** Alias for `voice` (cross-compat with `@qvac/tts-onnx`). */
   voiceName?: string
-  /** Supertonic: number of vector-estimator (CFM) steps.  0 -> GGUF default. */
+  /** Supertonic / CosyVoice3: number of flow-matching (CFM) Euler steps.  0 -> model default (CosyVoice3: 10). */
   steps?: number
   /** Alias for `steps` (cross-compat with `@qvac/tts-onnx`). */
   numInferenceSteps?: number
+  /** CosyVoice3: LM prompt transcript for the baked voice (empty -> engine default). */
+  promptText?: string
   /**
    * Speech-rate / duration multiplier (1.0 = unchanged, &lt; 1 slower, &gt; 1 faster).
    * Supertonic: scales the engine's native duration predictor (0 -> GGUF default).
@@ -206,6 +215,7 @@ declare class TTSGgml {
 
   static readonly ENGINE_CHATTERBOX: 'chatterbox'
   static readonly ENGINE_SUPERTONIC: 'supertonic'
+  static readonly ENGINE_COSYVOICE3: 'cosyvoice3'
 
   load(...args: unknown[]): Promise<void>
   unload(): Promise<void>
@@ -214,7 +224,7 @@ declare class TTSGgml {
   cancel(): Promise<void>
   getApiDefinition(): string
   getState(): { configLoaded: boolean; weightsLoaded: boolean; destroyed: boolean }
-  getEngineType(): 'chatterbox' | 'supertonic'
+  getEngineType(): 'chatterbox' | 'supertonic' | 'cosyvoice3'
 
   opts: object
   exclusiveRun: boolean

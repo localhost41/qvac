@@ -16,6 +16,13 @@ const { accumulateTextStream } = require('./lib/textStreamAccumulator')
 
 const ENGINE_CHATTERBOX = 'chatterbox'
 const ENGINE_SUPERTONIC = 'supertonic'
+const ENGINE_COSYVOICE3 = 'cosyvoice3'
+
+// CosyVoice3 ships a directory of GGUFs (LM/flow/HiFT) + a baked voice.gguf +
+// the Qwen2 BPE tokenizer (vocab.json/merges.txt); the LM GGUF is published per
+// quant tier (`cosyvoice3-llm-f32.gguf`, ...), so a modelDir is auto-detected
+// as CosyVoice when it holds any `cosyvoice3-llm[-<quant>].gguf`.
+const COSYVOICE3_LLM_RE = /^cosyvoice3-llm(-[a-z0-9_]+)?\.gguf$/i
 
 const CHATTERBOX_T3_TURBO = 'chatterbox-t3-turbo.gguf'
 const CHATTERBOX_T3_MTL = 'chatterbox-t3-mtl.gguf'
@@ -103,6 +110,9 @@ function normalizeGgmlFiles(files) {
   const f = files
   return {
     modelDir: firstNonEmpty(f.modelDir),
+    // CosyVoice3: a directory holding cosyvoice3-{llm,flow,hift}*.gguf +
+    // voice.gguf + vocab.json + merges.txt (assemble-cosyvoice3-model.py).
+    cosyvoiceModelDir: firstNonEmpty(f.cosyvoiceModelDir, f.cosyvoiceDir),
     t3Model: firstNonEmpty(f.t3Model, f.t3ModelPath, f.t3),
     s3genModel: firstNonEmpty(f.s3genModel, f.s3genModelPath, f.s3gen),
     supertonicModel: firstNonEmpty(f.supertonicModel, f.supertonicModelPath, f.supertonic),
@@ -135,17 +145,35 @@ function normalizeGgmlFiles(files) {
  *   4. Default → Chatterbox (turbo or MTL is decided later inside the
  *      Chatterbox path resolver based on which T3 file is present).
  */
+function dirHasCosyvoice3(dir) {
+  if (!dir) return false
+  let entries
+  try {
+    entries = fs.readdirSync(dir)
+  } catch (_e) {
+    return false
+  }
+  return entries.some((n) => COSYVOICE3_LLM_RE.test(n))
+}
+
 function detectEngineType(engine, normalizedFiles) {
-  if (engine === ENGINE_CHATTERBOX || engine === ENGINE_SUPERTONIC) {
+  if (
+    engine === ENGINE_CHATTERBOX ||
+    engine === ENGINE_SUPERTONIC ||
+    engine === ENGINE_COSYVOICE3
+  ) {
     return engine
   }
   if (engine != null && engine !== '') {
     throw new Error(
-      "tts-ggml: 'engine' option must be 'chatterbox' or 'supertonic' " + "(got '" + engine + "')"
+      "tts-ggml: 'engine' option must be 'chatterbox', 'supertonic' or 'cosyvoice3' " +
+        "(got '" + engine + "')"
     )
   }
+  if (normalizedFiles.cosyvoiceModelDir) return ENGINE_COSYVOICE3
   if (normalizedFiles.t3Model || normalizedFiles.s3genModel) return ENGINE_CHATTERBOX
   if (normalizedFiles.supertonicModel) return ENGINE_SUPERTONIC
+  if (dirHasCosyvoice3(normalizedFiles.modelDir)) return ENGINE_COSYVOICE3
   if (normalizedFiles.modelDir) {
     const turboT3 = path.join(normalizedFiles.modelDir, CHATTERBOX_T3_TURBO)
     const mtlT3 = path.join(normalizedFiles.modelDir, CHATTERBOX_T3_MTL)
@@ -268,6 +296,7 @@ class TTSGgml {
       steps,
       numInferenceSteps,
       speed,
+      promptText,
       noiseNpyPath,
       enhancer,
       denoiser,
@@ -330,6 +359,16 @@ class TTSGgml {
       )
       this._t3ModelPath = undefined
       this._s3genModelPath = undefined
+    } else if (this._engineType === ENGINE_COSYVOICE3) {
+      // CosyVoice3 loads a directory of GGUFs + tokenizer + baked voice; the C++
+      // engine resolves the individual components under it (resolve_component).
+      this._cosyvoiceModelDir = firstNonEmpty(
+        normalizedFiles.cosyvoiceModelDir,
+        normalizedFiles.modelDir
+      )
+      this._supertonicModelPath = undefined
+      this._t3ModelPath = undefined
+      this._s3genModelPath = undefined
     } else {
       const root = normalizedFiles.modelDir
       if (root) {
@@ -363,6 +402,8 @@ class TTSGgml {
     this._voice = firstNonEmpty(voice, voiceName)
     this._steps = firstNonEmpty(steps, numInferenceSteps)
     this._speed = speed
+    // CosyVoice3: LM prompt transcript for the baked voice (empty -> engine default).
+    this._promptText = promptText
     this._noiseNpyPath = noiseNpyPath
 
     // LavaSR enhancer (opt-in). Enhancement is ON iff a GGUF path is provided
@@ -428,6 +469,17 @@ class TTSGgml {
             '. ' +
             'Either drop one of the two, or make them agree ' +
             '(useGPU:true + nGpuLayers!=0, or useGPU:false + nGpuLayers=0).'
+        )
+      }
+    }
+
+    if (this._engineType === ENGINE_COSYVOICE3) {
+      if (this._streamChunkTokens != null || this._streamFirstChunkTokens != null) {
+        throw new Error(
+          'tts-ggml: streamChunkTokens / streamFirstChunkTokens are Chatterbox-only ' +
+            'options. CosyVoice3 does not support sub-sentence native streaming; use ' +
+            'sentence-level streaming via runStream() / runStreaming() / ' +
+            'run({ streamOutput: true }).'
         )
       }
     }
@@ -862,7 +914,28 @@ class TTSGgml {
     if (this._engineType === ENGINE_SUPERTONIC) {
       return this._buildSupertonicParams()
     }
+    if (this._engineType === ENGINE_COSYVOICE3) {
+      return this._buildCosyvoiceParams()
+    }
     return this._buildChatterboxParams()
+  }
+
+  _buildCosyvoiceParams() {
+    const params = {
+      engineType: ENGINE_COSYVOICE3,
+      cosyvoiceModelDir: this._cosyvoiceModelDir || '',
+      language: this._config?.language || 'en'
+    }
+    // Flow-matching Euler steps (from `steps` / `numInferenceSteps`).
+    if (this._steps != null) params.steps = this._steps | 0
+    if (this._seed != null) params.seed = this._seed | 0
+    if (this._threads != null) params.threads = this._threads | 0
+    if (this._promptText != null) params.promptText = String(this._promptText)
+    if (this._outputSampleRate != null) {
+      params.outputSampleRate = this._outputSampleRate | 0
+    }
+    if (this._backendsDir) params.backendsDir = this._backendsDir
+    return params
   }
 
   _buildChatterboxParams() {
@@ -1148,8 +1221,10 @@ class TTSGgml {
 
   static ENGINE_CHATTERBOX = ENGINE_CHATTERBOX
   static ENGINE_SUPERTONIC = ENGINE_SUPERTONIC
+  static ENGINE_COSYVOICE3 = ENGINE_COSYVOICE3
 }
 
 module.exports = TTSGgml
 module.exports.ENGINE_CHATTERBOX = ENGINE_CHATTERBOX
 module.exports.ENGINE_SUPERTONIC = ENGINE_SUPERTONIC
+module.exports.ENGINE_COSYVOICE3 = ENGINE_COSYVOICE3

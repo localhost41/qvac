@@ -18,6 +18,7 @@
 
 #include "js-interface/JSAdapter.hpp"
 #include "model-interface/chatterbox/ChatterboxModel.hpp"
+#include "model-interface/cosyvoice/CosyvoiceModel.hpp"
 #include "model-interface/supertonic/SupertonicModel.hpp"
 
 namespace qvac::ttsggml::addon_js {
@@ -25,6 +26,7 @@ namespace qvac::ttsggml::addon_js {
 namespace js = qvac_lib_inference_addon_cpp::js;
 
 using chatterbox::ChatterboxModel;
+using cosyvoice::CosyvoiceModel;
 using supertonic::SupertonicModel;
 
 struct JsAudioOutputHandler
@@ -108,6 +110,13 @@ inline js_value_t* createInstance(js_env_t* env, js_callback_info_t* info) try {
         outSr > 0 ? outSr
                   : (enhanced ? kLavasrEnhancedSampleRate : stm->sampleRate());
     model = std::move(stm);
+  } else if (engineType == EngineType::Cosyvoice) {
+    auto cfg = adapter.buildCosyvoiceConfig(configurationParams, env);
+    const int outSr = cfg.outputSampleRate.value_or(0);
+    auto cvm = make_unique<CosyvoiceModel>(std::move(cfg));
+    // CosyVoice3 is CPU-only iteration 1 (no LavaSR); native rate is 24 kHz.
+    sampleRate = outSr > 0 ? outSr : cvm->sampleRate();
+    model = std::move(cvm);
   } else {
     auto cfg = adapter.buildChatterboxConfig(configurationParams, env);
     const bool enhanced = !cfg.enhancerGgufPath.empty();
@@ -145,6 +154,12 @@ inline js_value_t* runJob(js_env_t* env, js_callback_info_t* info) try {
 
   if (auto* st = dynamic_cast<SupertonicModel*>(&instance.addonCpp->model.get())) {
     SupertonicModel::AnyInput modelInput;
+    modelInput.text = js::String(env, jsInput).as<std::string>(env);
+    return instance.runJob(std::any(std::move(modelInput)));
+  }
+
+  if (auto* cv = dynamic_cast<CosyvoiceModel*>(&instance.addonCpp->model.get())) {
+    CosyvoiceModel::AnyInput modelInput;
     modelInput.text = js::String(env, jsInput).as<std::string>(env);
     return instance.runJob(std::any(std::move(modelInput)));
   }
@@ -203,6 +218,23 @@ inline js_value_t* reload(js_env_t* env, js_callback_info_t* info) try {
           }
           stm->setConfig(std::move(newCfg));
           stm->reload();
+        });
+  }
+
+  if (auto* cv = dynamic_cast<CosyvoiceModel*>(&instance.addonCpp->model.get())) {
+    auto newCfg = adapter.buildCosyvoiceConfig(configurationParams, env);
+    return js::JsAsyncTask::run(
+        env,
+        [addonCpp = instance.addonCpp, newCfg = std::move(newCfg)]() mutable {
+          auto* cvm =
+              dynamic_cast<CosyvoiceModel*>(&addonCpp->model.get());
+          if (cvm == nullptr) {
+            throw qvac_errors::StatusError(
+                qvac_errors::general_error::InternalError,
+                "reload: model is not a CosyvoiceModel");
+          }
+          cvm->setConfig(std::move(newCfg));
+          cvm->reload();
         });
   }
 

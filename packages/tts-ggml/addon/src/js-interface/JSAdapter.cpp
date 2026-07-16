@@ -81,12 +81,17 @@ EngineType JSAdapter::readEngineType(
       readOptionalString(configurationParams, env, "engineType");
   if (explicitType == "chatterbox") return EngineType::Chatterbox;
   if (explicitType == "supertonic") return EngineType::Supertonic;
+  if (explicitType == "cosyvoice3") return EngineType::Cosyvoice;
   if (!explicitType.empty()) {
     throw qvac_errors::StatusError(
         general_error::InvalidArgument,
-        "engineType must be 'chatterbox' or 'supertonic' (got '" +
+        "engineType must be 'chatterbox', 'supertonic' or 'cosyvoice3' (got '" +
             explicitType + "')");
   }
+
+  const std::string cosyvoiceDir =
+      readOptionalString(configurationParams, env, "cosyvoiceModelDir");
+  if (!cosyvoiceDir.empty()) return EngineType::Cosyvoice;
 
   const std::string supertonicPath =
       readOptionalString(configurationParams, env, "supertonicModelPath");
@@ -170,6 +175,29 @@ supertonic::SupertonicConfig JSAdapter::buildSupertonicConfig(
   // qvac-ext-lib-whisper.cpp PR #78 (activates once the pinned tts-cpp has it).
   cfg.denoiserGgufPath =
       readOptionalString(configurationParams, env, "lavasrDenoiserPath");
+  return cfg;
+}
+
+cosyvoice::CosyvoiceConfig JSAdapter::buildCosyvoiceConfig(
+    js::Object configurationParams, js_env_t* env) {
+  cosyvoice::CosyvoiceConfig cfg;
+  cfg.modelDir      = readOptionalString(configurationParams, env, "cosyvoiceModelDir");
+  cfg.llmGgufPath   = readOptionalString(configurationParams, env, "cosyvoiceLlmPath");
+  cfg.flowGgufPath  = readOptionalString(configurationParams, env, "cosyvoiceFlowPath");
+  cfg.hiftGgufPath  = readOptionalString(configurationParams, env, "cosyvoiceHiftPath");
+  cfg.voiceGgufPath = readOptionalString(configurationParams, env, "cosyvoiceVoicePath");
+  cfg.vocabPath     = readOptionalString(configurationParams, env, "cosyvoiceVocabPath");
+  cfg.mergesPath    = readOptionalString(configurationParams, env, "cosyvoiceMergesPath");
+  cfg.promptText    = readOptionalString(configurationParams, env, "promptText");
+  {
+    auto lang = readOptionalString(configurationParams, env, "language");
+    if (!lang.empty()) cfg.language = std::move(lang);
+  }
+  cfg.steps            = readOptionalInt(configurationParams, env, "steps");
+  cfg.seed             = readOptionalInt(configurationParams, env, "seed");
+  cfg.threads          = readOptionalInt(configurationParams, env, "threads");
+  cfg.outputSampleRate = readOptionalInt(configurationParams, env, "outputSampleRate");
+  cfg.backendsDir      = readOptionalString(configurationParams, env, "backendsDir");
   return cfg;
 }
 
