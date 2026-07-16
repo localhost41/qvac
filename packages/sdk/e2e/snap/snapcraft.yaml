@@ -12,14 +12,23 @@ apps:
   qvac-sdk-e2e:
     # Strict Snap confinement provides the outer sandbox. Chromium's nested
     # credential sandbox is blocked by Snap seccomp on hosted runners.
-    command: app/QVACSDKElectronE2E --no-sandbox --disable-dev-shm-usage
+    command: app/QVACSDKElectronE2E --no-sandbox
     extensions:
       - gnome
+    # Keep runtime interfaces aligned with the production Workbench Snap so
+    # Electron, the Bare worker, and native model backends run under the same
+    # confinement contract.
     plugs:
       - audio-playback
+      - audio-record
+      - browser-support
+      - hardware-observe
+      - home
       - network
       - network-bind
       - opengl
+      - process-control
+      - shmem
     environment:
       TMPDIR: $XDG_RUNTIME_DIR
       GTK_USE_PORTAL: '1'
@@ -31,3 +40,8 @@ parts:
     stage-packages:
       - libasound2
       - libnss3
+
+plugs:
+  shmem:
+    interface: shared-memory
+    private: true

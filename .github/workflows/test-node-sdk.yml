@@ -421,6 +421,7 @@ jobs:
           key: qvac-snap-models-${{ hashFiles('packages/sdk/models/registry/models.ts') }}
 
       - name: Generate runId
+        if: always()
         id: runid
         shell: node {0}
         env:
