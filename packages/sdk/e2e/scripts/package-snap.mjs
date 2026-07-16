@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -11,6 +11,15 @@ const electronConfig = config.consumers.electron
 const snapDir = join(projectDir, 'snap')
 const electronDist = join(snapDir, 'electron-dist')
 const packagedSnapApp = join(electronDist, 'app')
+const packagedBareBinary = join(
+  packagedSnapApp,
+  'resources',
+  'app',
+  'node_modules',
+  `bare-runtime-linux-${process.arch}`,
+  'bin',
+  'bare'
+)
 const stableArtifact = resolve(projectDir, snapConfig.artifactPath)
 const artifactDir = dirname(stableArtifact)
 const electronOutput = join(projectDir, 'out', `${electronConfig.appName}-linux-${process.arch}`)
@@ -42,6 +51,8 @@ run(
 
 mkdirSync(electronDist, { recursive: true })
 cpSync(electronOutput, packagedSnapApp, { recursive: true })
+// bare-runtime normally repairs this mode at startup, but a mounted Snap is read-only.
+chmodSync(packagedBareBinary, 0o755)
 writeFileSync(
   join(electronDist, 'qvac-snap-build-id'),
   `${process.env.QVAC_TEST_SNAP_BUILD_ID ?? Date.now()}\n`
