@@ -88,7 +88,8 @@ try {
   }
   runSnapAdmin(['install', '--dangerous', resolve(firstArtifact)])
   runProbe('before')
-  runSnapAdmin(['refresh', '--dangerous', resolve(secondArtifact)])
+  // Installing another local revision of the same Snap is treated as a refresh.
+  runSnapAdmin(['install', '--dangerous', resolve(secondArtifact)])
   runProbe('after')
 } finally {
   if (process.env.QVAC_TEST_SNAP_KEEP_INSTALLED !== '1') {
