@@ -17,6 +17,14 @@ import pytest
 import pytest_asyncio
 
 from qvac.bare_rpc_transport import BARE_RPC_AVAILABLE, BareRpcTransport
+from qvac.methods import (
+    bci_transcribe_stream,
+    completion_stream,
+    heartbeat,
+    load_model,
+    text_to_speech_stream,
+    transcribe_stream,
+)
 from qvac.models import (
     BCI_WINDOWED,
     PARAKEET_CTC_0_6B_Q4_0,
@@ -31,14 +39,6 @@ from qvac.schemas import (
     ModelType,
     TextToSpeechStreamRequest,
     TranscribeStreamRequest,
-)
-from qvac.methods import (
-    bci_transcribe_stream,
-    completion_stream,
-    heartbeat,
-    load_model,
-    text_to_speech_stream,
-    transcribe_stream,
 )
 
 SDK_DIR = os.environ.get(
@@ -82,7 +82,10 @@ async def test_load_model_and_completion_stream(transport) -> None:
             "type": "loadModel",
             "modelSrc": QWEN3_600M_INST_Q4.src,
             "modelType": "llamacpp-completion",
-            "modelConfig": {},
+            # Qwen3 is a thinking model: the worker reserves context for the
+            # reasoning trace, so the metadata-default budget overflows even a
+            # tiny prompt. Give it an explicit window (matches the SDK e2e).
+            "modelConfig": {"n_ctx": 2048},
         }
     )
     load_response = await load_model(transport, load_request)

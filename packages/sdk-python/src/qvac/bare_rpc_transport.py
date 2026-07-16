@@ -18,7 +18,8 @@ import asyncio
 import json
 import os
 import tempfile
-from typing import Any, AsyncIterable, AsyncIterator, Sequence
+from collections.abc import AsyncIterable, AsyncIterator, Sequence
+from typing import Any
 
 try:
     import bare_rpc
@@ -69,7 +70,7 @@ class BareRpcTransport:
         self._read_task: asyncio.Task | None = None
         self.rpc: bare_rpc.RPC | None = None
 
-    async def connect(self, *, timeout: float = 30) -> "BareRpcTransport":
+    async def connect(self, *, timeout: float = 30) -> BareRpcTransport:
         if os.path.exists(self._sock_path):
             os.unlink(self._sock_path)
 
@@ -82,6 +83,9 @@ class BareRpcTransport:
             self._read_task = asyncio.current_task()
             if not connected.done():
                 connected.set_result(None)
+            # rpc is created right after the worker is spawned below, long
+            # before the worker can start and dial back into this callback.
+            assert self.rpc is not None
             try:
                 while True:
                     chunk = await reader.read(65536)
@@ -99,6 +103,9 @@ class BareRpcTransport:
         self._proc = await asyncio.create_subprocess_exec(*self._command, config)
 
         def send(frame: bytes) -> None:
+            # bare_rpc only calls send once it has a connection, at which
+            # point on_client above has already set the writer.
+            assert self._writer is not None
             self._writer.write(frame)
 
         self.rpc = bare_rpc.RPC(send=send)
@@ -131,7 +138,7 @@ class BareRpcTransport:
         if os.path.exists(self._sock_path):
             os.unlink(self._sock_path)
 
-    async def __aenter__(self) -> "BareRpcTransport":
+    async def __aenter__(self) -> BareRpcTransport:
         return await self.connect()
 
     async def __aexit__(self, *exc: object) -> None:
@@ -139,16 +146,21 @@ class BareRpcTransport:
 
     # ---- Transport protocol ----------------------------------------------
 
+    def _require_rpc(self) -> Any:
+        if self.rpc is None:
+            raise RuntimeError("BareRpcTransport used before connect()")
+        return self.rpc
+
     async def call(self, payload: dict) -> dict:
         """Unary, via bare_rpc.RPC.request -- no hand-rolled framing at all."""
-        data = await self.rpc.request(
+        data = await self._require_rpc().request(
             command=0, data=json.dumps(payload).encode("utf-8")
         )
         return _json_or_raise(data)
 
     async def call_stream(self, payload: dict) -> AsyncIterator[dict]:
         """Server-stream, via bare_rpc.RPC.request_with_response_stream."""
-        stream = await self.rpc.request_with_response_stream(
+        stream = await self._require_rpc().request_with_response_stream(
             command=0, data=json.dumps(payload).encode("utf-8")
         )
         buffer = ""
@@ -168,7 +180,9 @@ class BareRpcTransport:
         """Duplex, via bare_rpc.RPC.create_bidirectional_stream -- first outgoing
         chunk is the JSON payload, then `up`'s chunks; yields parsed response
         chunks with the same buffer-and-split-on-newline handling as call_stream."""
-        outgoing, incoming = await self.rpc.create_bidirectional_stream(command=0)
+        outgoing, incoming = await self._require_rpc().create_bidirectional_stream(
+            command=0
+        )
         await outgoing.write(json.dumps(payload).encode("utf-8"))
 
         async def _pump_up() -> None:

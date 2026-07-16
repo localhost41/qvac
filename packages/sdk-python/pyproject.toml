@@ -59,3 +59,10 @@ module = "qvac._generated.models._internal"
 # enum member on construction (verified: `Model().field == SomeEnum.x`
 # is True). Scoped to this one generated module, not project-wide.
 disable_error_code = ["assignment"]
+
+[[tool.mypy.overrides]]
+module = ["bare_rpc", "compact_encoding"]
+# The bare-rpc extra is optional and git-only (no PyPI release, no py.typed
+# marker), so it's absent from the default install CI type-checks against.
+# bare_rpc_transport.py already guards the import at runtime.
+ignore_missing_imports = true
