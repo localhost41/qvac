@@ -1,16 +1,15 @@
 vcpkg_from_github(
   OUT_SOURCE_PATH SOURCE_PATH
   REPO makaveli10/qvac-ext-lib-llama.cpp
-  # QVAC-9840 BENCHMARK OVERLAY — pinned to qvac-fabric PR #176 head (b9840 rebase).
-  # makaveli10/qvac-ext-lib-llama.cpp @ f1edb5969 (branch qvac-b9840) is the fork the
-  # cross-repo PR #176 "Rebase b9840" is opened from: qvac-fabric rebased onto upstream
-  # llama.cpp b9840, targeting the temp-9840 base. It already carries the
-  # null-mask=bidirectional OpenCL vision-encoder fix (same as PR #170) plus a newer
-  # flash-attn q-chunking path. Benchmarked here (S25 / Adreno 830 OpenCL, Qwen3.5-0.8B
-  # mmproj=both) to validate GPU-projector accuracy parity on b9840 and compare
-  # vision-encode perf vs fixed-9341 (QVAC-21297). SHA512 = GitHub source-tarball hash.
-  REF f1edb5969e1c7b57e854dac78c80546457993f6b
-  SHA512 e1946d14e5bb6966bc298ca6cf99bc961f85fa93bd4e32fdf8973a0b26cdc16bb56b96d47332e51d7b76071c60c369b6caef1559374bfce83b1d555b5fa3d028
+  # QVAC-b9840 MULTIDEVICE BENCHMARK OVERLAY — pinned to the LATEST qvac-fabric PR #176
+  # head (b9840 rebase). makaveli10/qvac-ext-lib-llama.cpp @ 3c7708586 (branch qvac-b9840)
+  # is the fork the cross-repo PR #176 "Rebase b9840" is opened from: qvac-fabric rebased
+  # onto upstream llama.cpp b9840. Benchmarked on S25 + S26 + Pixel 9 (Android only),
+  # Qwen3.5-0.8B & Gemma-4-E2B × {Q8_0, Q4_K_M} main, mmproj=Q8, mmproj=both (projector
+  # CPU vs GPU) — metrics gathering, no cross-version comparison. SHA512 = GitHub
+  # source-tarball hash of this REF.
+  REF 3c7708586e7655b212e5e63172bd18300f818a4b
+  SHA512 22ea93a0cd2b4b5c69f184429c32316b43f3aeba62573a160ff910caadbcc9a0092efbe5353358cc546cbb78343e87774e9b4d45218516d244c6132f1eb1abef
 )
 
 # Upstream CMake options only — passed through to vcpkg_cmake_configure.
