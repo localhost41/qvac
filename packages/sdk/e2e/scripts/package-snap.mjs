@@ -1,4 +1,12 @@
-import { chmodSync, cpSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  cpSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -37,6 +45,21 @@ function run(command, args, cwd) {
   }
 }
 
+function makeSnapTreeReadable(root) {
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const entryPath = join(root, entry.name)
+    if (entry.isSymbolicLink()) continue
+
+    const mode = lstatSync(entryPath).mode & 0o777
+    if (entry.isDirectory()) {
+      chmodSync(entryPath, mode | 0o555)
+      makeSnapTreeReadable(entryPath)
+    } else if (entry.isFile()) {
+      chmodSync(entryPath, mode | 0o444)
+    }
+  }
+}
+
 if (process.platform !== 'linux') {
   throw new Error(`Snap packaging requires Linux; current platform is ${process.platform}`)
 }
@@ -51,6 +74,8 @@ run(
 
 mkdirSync(electronDist, { recursive: true })
 cpSync(electronOutput, packagedSnapApp, { recursive: true })
+// Snap files are installed as root but the app runs as the invoking user.
+makeSnapTreeReadable(packagedSnapApp)
 // bare-runtime normally repairs this mode at startup, but a mounted Snap is read-only.
 chmodSync(packagedBareBinary, 0o755)
 writeFileSync(
