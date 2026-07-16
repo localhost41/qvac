@@ -130,8 +130,8 @@ void ClassificationModel::load() {
   }
 
 #if defined(__ANDROID__) || defined(GGML_BACKEND_DL)
-  // Under GGML_BACKEND_DL (Android, and desktop Linux when gpu-backends is
-  // enabled) qvac-fabric ships per-microarch CPU variants and GPU backends as
+  // Under GGML_BACKEND_DL (Android and desktop Linux) @qvac/fabric ships
+  // per-microarch CPU variants and GPU backends as
   // MODULE .so files loaded at runtime via dlopen. ggml_backend_cpu_init() is
   // not statically linkable here (the symbol lives inside a variant .so), so we
   // open the modules from <backendsDir>/<BACKENDS_SUBDIR>/ and pick a CPU
