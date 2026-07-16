@@ -367,6 +367,14 @@ jobs:
           --first snap/dist/qvac-sdk-e2e-first.snap
           --second snap/dist/qvac-sdk-e2e.snap
 
+      - name: Show Snap confinement denials
+        if: failure() && inputs.consumer == 'snap'
+        continue-on-error: true
+        run: >-
+          sudo journalctl --dmesg --no-pager
+          --since "10 minutes ago"
+          --grep 'apparmor="DENIED"|audit'
+
       - name: Install Snap revision for e2e
         if: inputs.consumer == 'snap'
         working-directory: ${{ inputs.working-directory }}
