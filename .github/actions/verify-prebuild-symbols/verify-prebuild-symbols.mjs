@@ -27,12 +27,24 @@
 //      Pass `--enforce-exports` to turn leaked engine exports into a hard fail
 //      (see packages/transcription-parakeet/symbols.map for the fix template).
 //
+// A DT_NEEDED provider does not have to sit in the scanned prebuilds/ tree. The
+// shared @qvac/fabric runtime (`qvac__fabric@0.bare`) ships in node_modules, not
+// beside the addon, and is pre-loaded (`require('@qvac/fabric')` in binding.js)
+// before the addon is dlopen'd -- so its `ggml_*` exports resolve the addon's UND
+// engine symbols at runtime. Point the check at it with
+// `--provider-dir node_modules/@qvac/fabric/prebuilds` so those symbols count as
+// provided instead of reading as a false-positive UND hard-fail. Provider dirs
+// are indexed for DT_NEEDED resolution only; they are never themselves checked.
+//
 // Usage:
 //   node verify-prebuild-symbols.mjs --dir <prebuilds-dir> [options]
 //   node verify-prebuild-symbols.mjs <prebuilds-dir>
 //
 // Options:
 //   --dir <path>            Directory to scan recursively (repeatable). Default: ./prebuilds
+//   --provider-dir <path>   Extra directory (repeatable) whose binaries contribute
+//                           DT_NEEDED-provider exports but are NOT checked. Use for
+//                           the shared @qvac/fabric runtime in node_modules.
 //   --platform <p>          linux|android|darwin|ios|win32 (informational; affects messaging)
 //   --engine-prefixes <csv> Symbol roots treated as engine-internal.
 //                           Default: ggml,gguf,llama,whisper,clip,mtmd,sd,stable_diffusion
@@ -70,6 +82,7 @@ function fail (msg) {
 function parseArgs (argv) {
   const opts = {
     dirs: [],
+    providerDirs: [],
     platform: process.env.PREBUILD_PLATFORM || '',
     enginePrefixes: ['ggml', 'gguf', 'llama', 'whisper', 'clip', 'mtmd', 'sd', 'stable_diffusion'],
     enforceExports: false,
@@ -83,6 +96,7 @@ function parseArgs (argv) {
     const a = argv[i]
     switch (a) {
       case '--dir': opts.dirs.push(argv[++i]); break
+      case '--provider-dir': opts.providerDirs.push(argv[++i]); break
       case '--platform': opts.platform = argv[++i]; break
       case '--engine-prefixes': opts.enginePrefixes = argv[++i].split(',').map(s => s.trim()).filter(Boolean); break
       case '--enforce-exports': opts.enforceExports = true; break
@@ -103,7 +117,7 @@ function parseArgs (argv) {
 
 function printHelp () {
   const text = process.argv[1] ? `node ${basename(process.argv[1])}` : 'verify-prebuild-symbols'
-  console.log(`Usage: ${text} --dir <prebuilds-dir> [--platform p] [--enforce-exports] [--engine-prefixes csv] [--json]`)
+  console.log(`Usage: ${text} --dir <prebuilds-dir> [--provider-dir path] [--platform p] [--enforce-exports] [--engine-prefixes csv] [--json]`)
 }
 
 // ---------------------------------------------------------------------------
@@ -264,16 +278,40 @@ function main () {
     process.exit(0)
   }
 
-  // Pre-index exported symbols of every binary by soname so DT_NEEDED lookups
-  // can resolve against co-located libraries.
+  // Pre-index exported symbols by soname (on-disk basename) so DT_NEEDED lookups
+  // resolve against co-located libraries. External --provider-dir trees (e.g. the
+  // shared @qvac/fabric runtime, which lives in node_modules rather than beside
+  // the addon) contribute their exports to the SAME index but are never checked.
   const exportsBySoname = new Map()
   const fmtByPath = new Map()
-  for (const p of binaries) {
+
+  function indexExports (p) {
     const fmt = detectFormat(p)
-    fmtByPath.set(p, fmt)
-    if (fmt === 'unknown') continue
+    if (fmt === 'unknown') return fmt
     const { exported } = symbolsOf(tools, p, fmt)
-    exportsBySoname.set(basename(p), exported)
+    const key = basename(p)
+    const prev = exportsBySoname.get(key)
+    // Union across hosts/dirs: the same soname (qvac__fabric@0.bare) appears once
+    // per platform subdir; each exports the same C ABI, so merging is correct.
+    if (prev) for (const s of exported) prev.add(s)
+    else exportsBySoname.set(key, new Set(exported))
+    return fmt
+  }
+
+  for (const p of binaries) {
+    fmtByPath.set(p, indexExports(p))
+  }
+
+  // Provider binaries are indexed for DT_NEEDED resolution only -- they are not
+  // addon artifacts under test, so they never enter the UND / export-hygiene
+  // checks (the fabric runtime legitimately carries its own UND backend symbols
+  // and ggml_* exports, which would otherwise false-positive).
+  const providerBinaries = []
+  for (const d of opts.providerDirs) walk(resolve(d), providerBinaries)
+  for (const p of providerBinaries) indexExports(p)
+
+  if (opts.providerDirs.length > 0 && !opts.quiet) {
+    console.log(`verify-prebuild-symbols: indexed ${providerBinaries.length} external provider binary(ies) from ${opts.providerDirs.join(', ')}.`)
   }
 
   // DT_NEEDED provider resolution (ELF) requires readelf; without it every
