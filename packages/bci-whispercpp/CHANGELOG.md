@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Migrated the runtime wrapper and type declarations to TypeScript. Sources now live under `src/` and the published root JavaScript entrypoints (`index.js`, `bci.js`, `configChecker.js`, `addonLogging.js`, `lib/*.js`) and `.d.ts` declarations are generated from them and committed. Public API, CommonJS export shape, and transcription output are unchanged.
+- Faster desktop neural-signal preprocessing on the GPU (Vulkan) and CPU paths. Public API and transcription output are unchanged.
+- Desktop linux-arm64 prebuilds now ship per-arch ggml CPU variants (`whisper-cpp` override 1.9.1#3, pulling `ggml-speech` 2026-07-14): the previous armv8-a-baseline build compiled out the ARM dotprod/fp16 kernels. The addon now loads the dynamically-loadable ggml backends on linux-arm64 (previously Android-only).
+- Refactored the JS and native internals to the team coding standards: extracted loops and large functions into named helpers, replaced magic numbers and repeated string literals with named constants (shared stream-header layout and addon-event names), and removed tracker-coupled comments. Behavior-preserving; public API and transcription output are unchanged.
+
+## [0.5.0] - 2026-07-14
+
+### Fixed
+
+- Bumped the `qvac-lib-inference-addon-cpp` vcpkg dependency to `1.2.4` (JsLogger concurrent-env ownership hardening fix, QVAC-21544 follow-up).
+
+## [0.4.1] - 2026-07-03
+
+### Fixed
+
+- Bumped the `qvac-lib-inference-addon-cpp` vcpkg dependency to `1.2.3` (JsLogger teardown / re-`setLogger` crash fix, QVAC-21544, tetherto/qvac#2932).
+
+## [0.4.0] - 2026-07-01
+
+### Changed
+
+- Bumped the `qvac-lib-inference-addon-cpp` vcpkg dependency to `1.2.2` (self-pin fix for safe `Worklet.terminate()` on Android).
+- Bumped the `whisper-cpp` vcpkg override from `1.8.5#5` to `1.9.1`, which pulls
+  the latest from upstream `ggml-org/whisper.cpp` v1.9.1 into our fork
+  `tetherto/qvac-ext-lib-whisper.cpp` (master `cb91a378`,
+  [#73](https://github.com/tetherto/qvac-ext-lib-whisper.cpp/pull/73)). The
+  registry baseline is left unchanged; the override resolves the new version
+  forward of the pinned baseline against
+  [tetherto/qvac-registry-vcpkg#219](https://github.com/tetherto/qvac-registry-vcpkg/pull/219)
+  (`whisper-cpp 1.9.1` port, REF `cb91a378`). This release ships it as `0.4.0`.
+
 ## [0.3.3] - 2026-06-24
 
 ### Changed

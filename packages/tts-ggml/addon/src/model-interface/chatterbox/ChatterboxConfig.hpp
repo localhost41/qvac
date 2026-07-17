@@ -5,6 +5,12 @@
 
 namespace qvac::ttsggml::chatterbox {
 
+// Native output sample rate (Hz) of Chatterbox's S3Gen/HiFT vocoder. The engine
+// emits at this rate; the addon tags un-enhanced output with it and feeds the
+// streaming enhancer at it. Shared so the model and AddonJs can't disagree on
+// the un-enhanced native rate.
+inline constexpr int kChatterboxNativeSampleRate = 24000;
+
 /**
  * Configuration for the Chatterbox engine wrapping tts-cpp::tts-cpp.
  *
@@ -38,7 +44,7 @@ struct ChatterboxConfig {
    *
    * The T3 KV cache is allocated UP-FRONT at n_ctx, in F32: the Turbo
    * GGUF ships n_ctx=8196 which costs ~1.6 GB of KV for synthesis that
-   * rarely needs more than a few hundred tokens (QVAC-19557 iOS OOM).
+   * rarely needs more than a few hundred tokens (iOS OOM).
    * When unset, {@link ChatterboxModel} applies kDefaultNCtx (2048,
    * ~400 MB KV on Turbo, ≈80 s of audio per synthesize() call).
    *
@@ -63,7 +69,14 @@ struct ChatterboxConfig {
    * outside the three values is rejected by validateConfig.
    */
   std::string kvCacheType;
-  /** Post-processing output sample rate.  Currently unused (engine always emits 24 kHz). */
+  /**
+   * Desired output sample rate in Hz (8000–192000), or unset/0 to keep the
+   * engine's native 24 kHz. Forwarded to the engine
+   * (EngineOptions::output_sample_rate), which resamples (batch once, streaming
+   * per-chunk seam-free). When the LavaSR enhancer is active the engine emits
+   * native and the model resamples after enhancement instead; the final
+   * emitted rate is this value either way.
+   */
   std::optional<int> outputSampleRate;
   /**
    * Speaking-rate multiplier (a duration multiplier, mirroring Supertonic's
@@ -106,6 +119,21 @@ struct ChatterboxConfig {
   std::optional<int> streamFirstChunkTokens;
   /** CFM Euler steps for streaming chunks.  0 = library default (2). */
   std::optional<int> streamCfmSteps;
+  /**
+   * S3Gen classifier-free-guidance (CFG) rate override, forwarded to
+   * `tts_cpp::chatterbox::EngineOptions::s3gen_cfg_rate`.
+   *
+   * The S3Gen CFM diffusion loop normally runs a batched cond+uncond pass
+   * combined by this rate.  Setting it to 0 makes S3Gen run cond-only (skips
+   * the uncond pass), roughly halving S3Gen compute at some quality cost; a
+   * positive value overrides the model's GGUF-baked rate.
+   *
+   *   - unset:  keep the model's baked rate (tts-cpp sentinel -1)
+   *   - 0:      disable CFG (cond-only, ~2x faster S3Gen)
+   *   - > 0:    explicit override of the model rate
+   *   - < 0:    rejected by ChatterboxModel::validateConfig
+   */
+  std::optional<float> cfgRate;
 
   /**
    * Forwarded to `tts_cpp::chatterbox::EngineOptions::backends_dir` /
@@ -129,14 +157,34 @@ struct ChatterboxConfig {
    *                   kanji degrade to [UNK].
    *
    *   cangjieTsvPath: Cangjie hanzi->code TSV used for Chinese ("zh").
-   *                   zh is currently excluded from the multilingual
-   *                   tokenizer's supported_languages(), so this stays
-   *                   wired but unused until the Cangjie path is reworked.
+   *                   Required for "zh"; when empty tts-cpp throws at load
+   *                   time asking for the Cangjie5_TC TSV.
    *
    * Empty -> leave the corresponding EngineOptions field empty.
    */
   std::string mecabDictPath;
   std::string cangjieTsvPath;
+
+  // LavaSR neural speech enhancement. A non-empty `enhancerGgufPath` is the
+  // single switch: when set, the synthesized 24 kHz PCM is bandwidth-extended
+  // to 48 kHz before being returned; empty disables it (full backward compat).
+  //
+  // Works on both the batch path and the native chunk-streaming path
+  // (streamChunkTokens > 0): streaming enhancement runs the enhancer over a
+  // sliding window with look-ahead + crossfade (see StreamingEnhancer), adding
+  // ~0.34 s of latency. The enhancer always produces 48 kHz; if
+  // `outputSampleRate` is also set the enhanced signal is resampled to that
+  // rate afterwards.
+  std::string enhancerGgufPath;
+
+  // LavaSR neural speech denoiser (UL-UNAS). A non-empty `denoiserGgufPath` is
+  // the single switch: when set, the synthesized PCM is denoised BEFORE the
+  // enhancer (rate-preserving); empty disables it (full backward compat).
+  // The tts-cpp UL-UNAS forward is implemented in qvac-ext-lib-whisper.cpp PR
+  // #78; a non-empty path activates it once the pinned tts-cpp includes #78.
+  // Native chunk streaming (streamChunkTokens > 0) with a denoiser is rejected
+  // up front (a stateful streaming denoiser is the follow-up) — batch only.
+  std::string denoiserGgufPath;
 };
 
 } // namespace qvac::ttsggml::chatterbox

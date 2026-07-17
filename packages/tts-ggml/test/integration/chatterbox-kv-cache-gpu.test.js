@@ -1,6 +1,6 @@
 'use strict'
 
-// Chatterbox KV-cache × engine × GPU regression suite (QVAC-21401).
+// Chatterbox KV-cache × engine × GPU regression suite.
 //
 // This is the test that would have caught the multilingual Metal abort:
 // `@qvac/tts-ggml` 0.3.2–0.3.5 defaulted the T3 KV cache to `q8_0`, which
@@ -48,14 +48,16 @@ const LANGUAGE_FOR = { mtl: 'es', turbo: 'en' }
 
 // Load `variant` on the GPU with `kvCacheType`, synthesize once, assert it
 // completed and engaged the GPU, then unload.  Shared by every matrix entry.
-async function runGpuCase (t, variant, kvCacheType) {
+async function runGpuCase(t, variant, kvCacheType) {
   const baseDir = getBaseDir()
   const modelsDir = path.join(baseDir, 'models')
 
   const download = await ensureModelsFor(variant, modelsDir)
   if (!download.success) {
-    t.fail(`Chatterbox ${variant} GGUFs not available - registry fetch failed. ` +
-      'Run `npm run download-models:registry` or stage models locally.')
+    t.fail(
+      `Chatterbox ${variant} GGUFs not available - registry fetch failed. ` +
+        'Run `npm run download-models:registry` or stage models locally.'
+    )
     return
   }
 
@@ -75,39 +77,44 @@ async function runGpuCase (t, variant, kvCacheType) {
     kvCacheType
   })
   try {
-    // allowPolicyCpu: Chatterbox legitimately declines some vendors (e.g.
-    // ARM Mali) and falls back to CPU with gpuUnsupported=1 — not a failure.
+    // Chatterbox now runs on the ARM Mali GPU, so the GPU is required here.
     await assertSynthesisCompletes(t, model, {
       tag,
       language: LANGUAGE_FOR[variant],
       minSamples: 2000,
       expectGpu: true,
-      allowPolicyCpu: true
+      allowPolicyCpu: false
     })
   } finally {
-    try { await model.unload() } catch (_e) {}
+    try {
+      await model.unload()
+    } catch (_e) {}
   }
 }
 
 // ── Headline regression: the exact cell that shipped broken ──────────────
-// MTL + useGPU=true + DEFAULT KV cache.  Pre-QVAC-21401 (q8_0 default) this
+// MTL + useGPU=true + DEFAULT KV cache. Pre-(q8_0 default) this
 // aborts on Metal; post-fix (f16 default) it completes.
-test('Chatterbox MTL + useGPU=true + DEFAULT KV cache synthesizes to completion (QVAC-21401)',
+test(
+  'Chatterbox MTL + useGPU=true + DEFAULT KV cache synthesizes to completion',
   { timeout: 600000, skip: NO_GPU },
   async (t) => {
     await runGpuCase(t, 'mtl', undefined)
-  })
+  }
+)
 
 // ── Full GPU-safe sweep: every variant × {default, f16, f32} on GPU ──────
 for (const variant of CHATTERBOX_VARIANTS) {
   for (const kvCacheType of [undefined, ...GPU_SAFE_KV_TYPES]) {
     // The MTL/default cell is the headline test above; skip the duplicate.
     if (variant === 'mtl' && kvCacheType === undefined) continue
-    test(`Chatterbox ${variant.toUpperCase()} + useGPU=true + kv=${kvLabel(kvCacheType)} synthesizes to completion`,
+    test(
+      `Chatterbox ${variant.toUpperCase()} + useGPU=true + kv=${kvLabel(kvCacheType)} synthesizes to completion`,
       { timeout: 600000, skip: NO_GPU },
       async (t) => {
         await runGpuCase(t, variant, kvCacheType)
-      })
+      }
+    )
   }
 }
 
@@ -118,9 +125,11 @@ for (const variant of CHATTERBOX_VARIANTS) {
 // follow-up once it ships (it should either complete or cleanly fall back to
 // f32 — never SIGABRT).
 for (const variant of CHATTERBOX_VARIANTS) {
-  test(`Chatterbox ${variant.toUpperCase()} + useGPU=true + kv=q8_0 does not abort (opt-in: QVAC_TTS_KV_PROBE_UNSAFE)`,
+  test(
+    `Chatterbox ${variant.toUpperCase()} + useGPU=true + kv=q8_0 does not abort (opt-in: QVAC_TTS_KV_PROBE_UNSAFE)`,
     { timeout: 600000, skip: NO_GPU || !PROBE_UNSAFE },
     async (t) => {
       await runGpuCase(t, variant, 'q8_0')
-    })
+    }
+  )
 }

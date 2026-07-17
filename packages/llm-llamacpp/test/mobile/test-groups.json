@@ -5,6 +5,8 @@
     "reasoning": ["runReasoningTest"],
     "slidingContext": ["runSlidingContextTest"],
     "imageFruitPlate": ["runImageFruitPlateTest"],
+    "imageMmprojGpu": ["runImageMmprojGpuTest"],
+    "imageTileMode": ["runQwen35ImageTileModeTokensTest"],
     "gemma": ["runGemma4Test"],
     "quantizedKvcache": ["runQuantizedKvcacheTest"],
     "continuousBatching": ["runContinuousBatchingTest"],
@@ -13,6 +15,7 @@
       "runBitnetTest",
       "runCacheStateMachineTest",
       "runConfigParametersTest",
+      "runKvCacheTypeDefaultsTest",
       "runToolsCompactTest"
     ],
     "lightB": [
@@ -37,7 +40,8 @@
     ],
     "funcShardB": [
       "runToolsCompactTest",
-      "runSlidingContextTest"
+      "runSlidingContextTest",
+      "runKvCacheTypeDefaultsTest"
     ],
     "funcShardC": [
       "runToolCallingTest",
@@ -55,6 +59,8 @@
       "runQwen35Test",
       "runModelLoadingTest",
       "runImageFruitPlateTest",
+      "runImageMmprojGpuTest",
+      "runQwen35ImageTileModeTokensTest",
       "runGrammarTest",
       "runTurboquantTest",
       "runBitnetTest",

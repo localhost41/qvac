@@ -6,7 +6,7 @@
 # and MODEL_S3_BUCKET.
 #
 # Coverage today: bci-whispercpp, diffusion-cpp, embed-llamacpp,
-# llm-llamacpp, nmtcpp, onnx, parakeet, tts-ggml, tts-onnx,
+# llm-llamacpp, nmtcpp, onnx, parakeet, tts-ggml,
 # whispercpp, ocr-onnx. All prebuild workflows in the monorepo
 # now route through this reusable.
 name: "Prebuilds (reusable)"
@@ -48,6 +48,21 @@ on:
         type: boolean
         required: false
         default: false
+      include-rocm:
+        description: >-
+          Install the ROCm/HIP SDK (TheRock dist, gfx1151) on the linux-x64
+          build so a consumer's qvac-fabric hip-backend feature cross-compiles
+          libqvac-ggml-hip.so. No AMD GPU is needed on the runner (compile-only,
+          like CUDA). Only affects the linux-x64 job; everything else is
+          unchanged.
+        type: boolean
+        required: false
+        default: false
+      rocm-version:
+        description: "TheRock ROCm dist tarball version used when include-rocm is set"
+        type: string
+        required: false
+        default: "7.13.0"
       extra-cmake-defines:
         description: >-
           Additional cmake defines appended verbatim to `bare-make generate` on every matrix entry. Space-separated. Example: "-D VK_PROFILING=ON" to enable Vulkan profiling on the llamacpp packages.
@@ -233,6 +248,12 @@ jobs:
         run: |
           echo "VULKAN_SDK=/opt/vulkansdk/x86_64" >> "$GITHUB_ENV"
 
+      - if: ${{ inputs.include-rocm && matrix.platform == 'linux' && matrix.arch == 'x64' }}
+        name: Setup ROCm SDK for HIP cross-compile
+        uses: ./.github/actions/setup-rocm
+        with:
+          rocm-version: ${{ inputs.rocm-version }}
+
       - if: ${{ inputs.include-vulkan-sdk && matrix.os == 'windows-2025' }}
         name: Set Vulkan SDK Path (Windows)
         run: |
@@ -402,15 +423,30 @@ jobs:
 
           # Prefer dumpbin on PATH; otherwise locate it via vswhere (installed
           # alongside the MSVC build tools that the vcpkg build already requires).
+          # -prerelease covers VS preview installs, and the filesystem fallback
+          # covers Build Tools instances the VS installer never registered
+          # (both seen on the self-hosted qvac-win25-x64 fleet after the VS
+          # 2026 rollout, where vswhere returns nothing yet the build works).
           $dumpbin = (Get-Command dumpbin -ErrorAction SilentlyContinue).Source
           if (-not $dumpbin) {
             $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
             if (Test-Path $vswhere) {
-              $dumpbin = & $vswhere -latest -products * -find "**\dumpbin.exe" | Select-Object -First 1
+              $dumpbin = & $vswhere -latest -prerelease -products * -find "**\dumpbin.exe" | Select-Object -First 1
             }
           }
           if (-not $dumpbin) {
-            Write-Error "dumpbin.exe not found (checked PATH and vswhere)"
+            $roots = @("${env:ProgramFiles(x86)}\Microsoft Visual Studio", "${env:ProgramFiles}\Microsoft Visual Studio")
+            foreach ($root in $roots) {
+              if (Test-Path $root) {
+                $found = Get-ChildItem -Path $root -Recurse -Filter dumpbin.exe -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match 'Hostx64\\x64' } |
+                  Sort-Object FullName -Descending | Select-Object -First 1
+                if ($found) { $dumpbin = $found.FullName; break }
+              }
+            }
+          }
+          if (-not $dumpbin) {
+            Write-Error "dumpbin.exe not found (checked PATH, vswhere, and Visual Studio install roots)"
             exit 1
           }
           Write-Output "Using dumpbin: $dumpbin"

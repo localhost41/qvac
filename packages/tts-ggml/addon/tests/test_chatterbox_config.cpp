@@ -192,13 +192,44 @@ TEST(ChatterboxValidate, ConfigSpeedDefaultUnset) {
   EXPECT_FALSE(cfg.speed.has_value());
 }
 
+TEST(ChatterboxValidate, CfgRateNegativeRejected) {
+  // -1 is tts-cpp's internal "keep the model rate" sentinel; the addon
+  // expresses that by omitting the option, so a user-supplied negative value
+  // is rejected rather than silently meaning "keep model rate".
+  auto cfg = minimallyValidStubConfig();
+  cfg.cfgRate = -1.0f;
+  EXPECT_THROW(ChatterboxModel{cfg}, StatusError);
+}
+
+TEST(ChatterboxValidate, CfgRateZeroAccepted) {
+  // 0 = disable CFG (cond-only S3Gen) — a valid, explicit choice.
+  auto cfg = minimallyValidStubConfig();
+  cfg.cfgRate = 0.0f;
+  std::unique_ptr<ChatterboxModel> m;
+  EXPECT_NO_THROW(m = std::make_unique<ChatterboxModel>(cfg));
+  EXPECT_NE(m, nullptr);
+}
+
+TEST(ChatterboxValidate, CfgRatePositiveAccepted) {
+  auto cfg = minimallyValidStubConfig();
+  cfg.cfgRate = 0.7f; // a typical S3Gen CFG rate
+  std::unique_ptr<ChatterboxModel> m;
+  EXPECT_NO_THROW(m = std::make_unique<ChatterboxModel>(cfg));
+  EXPECT_NE(m, nullptr);
+}
+
+TEST(ChatterboxValidate, ConfigCfgRateDefaultUnset) {
+  ChatterboxConfig cfg;
+  EXPECT_FALSE(cfg.cfgRate.has_value());
+}
+
 // ─────────────────────────────────────────────────────────────────────
 //  ChatterboxConfig -> tts_cpp EngineOptions mapping.
 // ─────────────────────────────────────────────────────────────────────
 
 // The T3 KV cache is allocated up-front at n_ctx (Turbo GGUF ships
 // n_ctx=8196 ~= 1.6 GB of f32 KV), so the addon must cap it by default
-// rather than inherit tts-cpp's uncapped library default (QVAC-19557 iOS
+// rather than inherit tts-cpp's uncapped library default (iOS
 // OOM).  4096 + the f16 dtype default below ~= 390 MB.
 TEST(ChatterboxEngineOptions, NCtxDefaultsTo4096) {
   ChatterboxConfig cfg;
@@ -217,11 +248,11 @@ TEST(ChatterboxEngineOptions, KvCacheTypeDefaultsToF16) {
       "f16");
 }
 
-// Tripwire (QVAC-21401): the *default* KV-cache dtype must be one every GPU
+// Tripwire: the *default* KV-cache dtype must be one every GPU
 // backend can run the full multilingual T3 step graph with.  The MTL graph
 // (tts-cpp eval_step_mtl) issues a ggml_cont on the KV cache, and ggml-speech's
 // Metal backend has no q8_0->q8_0 CONT, so a *quantized* default (q8_0, the
-// 0.3.2 QVAC-19557 default) hard-aborts the multilingual model on Metal with
+// 0.3.2 default) hard-aborts the multilingual model on Metal with
 // GGML_ABORT("unsupported op 'CONT'").  This asserts the *property* (default is
 // f32/f16, never quantized), not just the current literal — so a future
 // re-flip to a quantized default trips this cheap, no-GPU PR check instead of
@@ -235,7 +266,7 @@ TEST(ChatterboxEngineOptions, DefaultKvCacheTypeIsGpuSafeNotQuantized) {
   EXPECT_TRUE(def == "f32" || def == "f16")
       << "default KV-cache dtype '" << def << "' is not GPU-safe: a quantized "
          "default aborts the multilingual Chatterbox model on Metal "
-         "(unsupported q8_0 CONT, QVAC-21401). Keep the default f16/f32, or "
+         "(unsupported q8_0 CONT). Keep the default f16/f32, or "
          "land the tts-cpp CONT-probe fix before re-quantizing it.";
   EXPECT_NE(def, "q8_0");
 }
@@ -266,6 +297,31 @@ TEST(ChatterboxEngineOptions, NCtxZeroMeansUncapped) {
   ChatterboxConfig cfg;
   cfg.nCtx = 0;
   EXPECT_EQ(qvac::ttsggml::chatterbox::engineOptionsForTests(cfg).n_ctx, 0);
+}
+
+// Unset cfgRate must leave tts-cpp's -1 sentinel untouched so the engine keeps
+// the model's GGUF-baked CFG rate (full backward compat).
+TEST(ChatterboxEngineOptions, CfgRateUnsetKeepsModelSentinel) {
+  ChatterboxConfig cfg;
+  EXPECT_FLOAT_EQ(
+      qvac::ttsggml::chatterbox::engineOptionsForTests(cfg).s3gen_cfg_rate,
+      -1.0f);
+}
+
+TEST(ChatterboxEngineOptions, CfgRateZeroForwarded) {
+  ChatterboxConfig cfg;
+  cfg.cfgRate = 0.0f; // disable CFG (cond-only)
+  EXPECT_FLOAT_EQ(
+      qvac::ttsggml::chatterbox::engineOptionsForTests(cfg).s3gen_cfg_rate,
+      0.0f);
+}
+
+TEST(ChatterboxEngineOptions, CfgRatePositiveForwarded) {
+  ChatterboxConfig cfg;
+  cfg.cfgRate = 0.7f;
+  EXPECT_FLOAT_EQ(
+      qvac::ttsggml::chatterbox::engineOptionsForTests(cfg).s3gen_cfg_rate,
+      0.7f);
 }
 
 // ─────────────────────────────────────────────────────────────────────
