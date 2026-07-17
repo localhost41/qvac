@@ -1,0 +1,81 @@
+{
+  "name": "parakeet-cpp",
+  "version-date": "2026-07-17",
+  "description": "Parakeet (NVIDIA FastConformer ASR + Sortformer diarization) inference in pure C++/ggml. Ships CTC, TDT, EOU and Sortformer engines under one Engine umbrella, plus the cross-engine StreamEvent API (VadStateChanged / EndOfTurn). Sourced from tetherto/qvac-ext-lib-whisper.cpp parakeet-cpp/ subfolder; consumes the ggml-speech port. This pin (master ecac5bb7, PR #85) runs the EOU RNN-T decoder as ggml graphs on GPU backends: span-batched joint (16 frames per launch), persistent LSTM/pred state and full-window enc-projection on device, on-device argmax and <EOU> state reset; scalar host decode stays for CPU and OpenCL. RTX 4000 Vulkan EOU RTF drops 0.0052 to 0.0031. Prior pin (master 2e2f4d5, PR #87) places the quantized conformer encoder GEMM weights in the CPU repack extra buffer type on CPU-only runs (q4_0->q4_0_4x8, q8_0->q8_0_4x8), replacing the generic vec_dot path with the block-parallel dotprod/i8mm/AVX2 kernels and closing the CPU-side q4_0-slower-than-q8_0 penalty. Prior pin (master df54e37, PR #83) fixed the on-device TDT predictor multi-layer state persistence.",
+  "homepage": "https://github.com/tetherto/qvac-ext-lib-whisper.cpp/tree/master/parakeet-cpp",
+  "license": "MIT",
+  "dependencies": [
+    {
+      "name": "ggml-speech",
+      "version>=": "2026-07-14"
+    },
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ],
+  "default-features": [
+    {
+      "name": "metal",
+      "platform": "osx | ios"
+    },
+    {
+      "name": "opencl",
+      "platform": "android"
+    },
+    {
+      "name": "vulkan",
+      "platform": "windows | linux | android"
+    }
+  ],
+  "features": {
+    "cuda": {
+      "description": "Enable CUDA GPU acceleration",
+      "dependencies": [
+        {
+          "name": "ggml-speech",
+          "features": [
+            "cuda"
+          ]
+        }
+      ]
+    },
+    "metal": {
+      "description": "Enable Metal GPU acceleration (macOS / iOS)",
+      "dependencies": [
+        {
+          "name": "ggml-speech",
+          "features": [
+            "metal"
+          ]
+        }
+      ]
+    },
+    "opencl": {
+      "description": "Enable OpenCL GPU acceleration (Android / Adreno)",
+      "dependencies": [
+        {
+          "name": "ggml-speech",
+          "features": [
+            "opencl"
+          ]
+        }
+      ]
+    },
+    "vulkan": {
+      "description": "Enable Vulkan GPU acceleration",
+      "dependencies": [
+        {
+          "name": "ggml-speech",
+          "features": [
+            "vulkan"
+          ]
+        }
+      ]
+    }
+  }
+}
