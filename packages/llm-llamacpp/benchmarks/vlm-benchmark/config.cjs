@@ -158,7 +158,7 @@ module.exports = {
   // Single VLM used by mmproj-compare (mmprojGpu='both'). ONE model-quant per dispatch;
   // the per-config bench branches set this to MODEL_2 (qwen-q8) / QWEN_Q4 / GEMMA_Q8 /
   // GEMMA_Q4 and run on S25 + S26 + Pixel 9.
-  mmprojModel: MODEL_2,
+  mmprojModel: GEMMA_Q8,
   // The four model-quant configs under test (one selected per dispatch via mmprojModel);
   // listed here so all stay referenced regardless of which is active on a given branch.
   mmprojCandidates: [MODEL_2, QWEN_Q4, GEMMA_Q4, GEMMA_Q8],
