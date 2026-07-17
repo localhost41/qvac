@@ -143,7 +143,9 @@ jobs:
     # Runs per-package (matches how ./.github/actions/sanity-checks is
     # already invoked from every on-pr-<pkg>.yml - workdir is a package
     # path, there is no root package.json in this monorepo).
-    if: needs.label-gate.outputs.authorised == 'true' && needs.authorize.outputs.allowed == 'true' && needs.changes.outputs.any == 'true'
+    # Gate on the concrete package list: a non-addon packages/** change leaves
+    # packages=[], which would make this matrix zero-run and result='' downstream.
+    if: needs.label-gate.outputs.authorised == 'true' && needs.authorize.outputs.allowed == 'true' && needs.changes.outputs.packages != '[]' && needs.changes.outputs.packages != ''
     needs: [authorize, label-gate, changes]
     strategy:
       fail-fast: false
@@ -190,4 +192,4 @@ jobs:
     uses: ./.github/workflows/public-pr.yml
     with:
       sanity-checks-status: ${{ needs.sanity-checks.result == 'success' || needs.sanity-checks.result == 'skipped' }}
-      build-status: ${{ needs.prebuilds-caller.result == 'success' || needs.prebuilds-caller.result == 'skipped' }}
+      build-status: ${{ needs.prebuilds-caller.result == 'success' }}
