@@ -399,7 +399,11 @@ jobs:
       # Export-leak findings stay warnings during rollout (enforce-exports
       # defaults to false) until every ggml addon ships a symbols.map.
       - name: Verify prebuild symbols
-        uses: tetherto/qvac/.github/actions/verify-prebuild-symbols@f8e9a76e3c4336c044775857f1eca8ca2f663741
+        # TEST PIN (QVAC-22463-test): pinned to the QVAC-22463 fix commit
+        # (verify-prebuild-symbols --provider-dir shared-@qvac/fabric resolution)
+        # so a manual dispatch of this test branch on the CI org picks up the
+        # updated action. Re-pin to the merged main commit before merge.
+        uses: tetherto/qvac/.github/actions/verify-prebuild-symbols@12bb0daaec2a83616697cc6db8f85b16d1fc2db4
         with:
           platform: ${{ matrix.platform }}
           workdir: ${{ env.WORKDIR }}
