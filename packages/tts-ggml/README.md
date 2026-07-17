@@ -2,9 +2,10 @@
 
 Text-to-speech Bare addon backed by the [`qvac-tts.cpp`][qvac-tts-cpp]
 GGML library.  Wraps multiple engines under one package: **Chatterbox**
-(Turbo English + multilingual) and **Supertonic** (v1 English, v2, and
-v3 31-language), plus optional LavaSR neural denoise + 48 kHz
-bandwidth-extension enhancement.
+(Turbo English + multilingual), **Supertonic** (v1 English, v2, and
+v3 31-language), and **Parler** (mini/large English + indic 21-language,
+description-conditioned with voice/emotion templates), plus optional
+LavaSR neural denoise + 48 kHz bandwidth-extension enhancement.
 
 Runs in-process with a persistent native engine — the GGUFs, the S3Gen
 preload, the ggml backend, and any voice-conditioning tensors are
@@ -73,6 +74,12 @@ supertonic2.gguf           (~263 MB)
 # Supertonic 3 (Supertone/supertonic-3; 31 languages) — published per quant
 # tier with the quant in the filename (auto-detected from modelDir)
 supertonic3-f16.gguf       (also -q8_0 / -q4_0 / -f32)
+
+# Parler (parler-tts/parler-tts-{mini,large}-v1 + ai4bharat/indic-parler-tts;
+# 44.1 kHz, description-conditioned) — published per quant tier
+parler-mini-v1-q8_0.gguf   (~1.2 GB; also -q6_k)
+parler-large-v1-q8_0.gguf  (~2.8 GB; also -q6_k)
+parler-indic-q8_0.gguf     (~1.3 GB; also -f16 / -f32; 21 Indic languages)
 ```
 
 The package converts these from upstream Resemble Chatterbox / Supertone
@@ -92,7 +99,7 @@ npm run convert-models
 Point the addon at a custom location via `files.modelDir` (engine
 auto-detected from the gguf filenames present), or pass explicit
 `files.t3Model` + `files.s3genModel` (Chatterbox) /
-`files.supertonicModel` (Supertonic).
+`files.supertonicModel` (Supertonic) / `files.parlerModel` (Parler).
 
 ## Quick start
 
@@ -339,6 +346,41 @@ on Mali) is paid once per install rather than on the first `run()` of
 every process.  Both are fully opt-in: unset means behaviour is
 unchanged.
 
+## Parler descriptions & emotions
+
+Parler is **description-conditioned**: the voice is controlled by a
+natural-language caption, not a voice id.  Two mutually exclusive ways to
+set it (same level = constructor or per-call; setting both throws):
+
+- `description` (alias `voiceDescription`) — a full free-text caption.
+- Template fields — `voice`, `emotion`, `pitch`, `pace`, `expressivity`,
+  `noise`, `reverb`, `quality` — rendered natively in the models'
+  training-caption phrasing.  All optional; with nothing set the models'
+  recommended fallback caption is used, so Parler works out of the box.
+
+```js
+const model = new TTSGgml({
+  files: { parlerModel: './models/parler-indic-q8_0.gguf' },
+  voice: 'Rohit', // speaker name (indic: per-language voices, e.g. hi Rohit/Divya, gu Yash/Neha)
+  emotion: 'happy' // one of the 12 trained styles
+})
+await model.load()
+
+// per-call override: template fields merge over the constructor's
+await model.run({ input: 'आज मौसम बहुत अच्छा है।', emotion: 'sad' })
+```
+
+`emotion` accepts (case-insensitive): `command`, `anger`, `narration`,
+`conversation`, `disgust`, `fear`, `happy`, `neutral`, `proper noun`,
+`news`, `sad`, `surprise`.  The indic model card lists 10 officially
+emotion-tested languages (Assamese, Bengali, Bodo, Dogri, Kannada,
+Malayalam, Marathi, Sanskrit, Nepali, Tamil); elsewhere — including
+Hindi/Gujarati and the English mini/large models — emotion conditioning
+exists but is best-effort.  Per-call fields ride on `run()` input and the
+`runStream`/`runStreaming` options (one description is pinned per
+streaming response, keeping the native T5 cross-attention cache hot).
+Parler is CPU-only (`useGPU` is rejected) and emits native 44.1 kHz.
+
 ## API overview
 
 ### Constructor — `new TTSGgml(options)`
@@ -349,9 +391,10 @@ unchanged.
 | `files.t3Model`           | string     | —          | Overrides `modelDir` for T3 |
 | `files.s3genModel`        | string     | —          | Overrides `modelDir` for S3Gen |
 | `files.supertonicModel`   | string     | —          | Supertonic GGUF (overrides `modelDir`) |
+| `files.parlerModel`       | string     | —          | Parler GGUF — mini/large/indic variant (overrides `modelDir`) |
 | `files.lavasrEnhancer`    | string     | —          | LavaSR enhancer GGUF — supplying it turns on 48 kHz enhancement |
 | `files.lavasrDenoiser`    | string     | —          | LavaSR denoiser GGUF — supplying it turns on denoising (batch only) |
-| `engine`                  | string     | auto       | Force `'chatterbox'` or `'supertonic'` (`TTSGgml.ENGINE_CHATTERBOX` / `ENGINE_SUPERTONIC`); auto-detected from the GGUFs present otherwise |
+| `engine`                  | string     | auto       | Force `'chatterbox'`, `'supertonic'` or `'parler'` (`TTSGgml.ENGINE_CHATTERBOX` / `ENGINE_SUPERTONIC` / `ENGINE_PARLER`); auto-detected from the GGUFs present otherwise |
 | `referenceAudio`          | string     | —          | Mono wav ≥ 5 s for voice cloning |
 | `voiceDir`                | string     | —          | Pre-baked voice profile |
 | `seed`                    | number     | 42         | RNG seed (CFM noise + sampling) |
@@ -363,9 +406,15 @@ unchanged.
 | `streamFirstChunkTokens`  | number     | = streamChunkTokens | Smaller first chunk for low first-audio-out |
 | `cfmSteps`                | number     | 2          | Chatterbox: 1 = faster (halved CFM cost) |
 | `speed`                   | number     | 1.0        | Speaking-rate multiplier, bounded `[0.25, 4.0]` (`< 1` slower, `> 1` faster). Both engines |
-| `voice` / `voiceName`     | string     | —          | Supertonic voice id (e.g. `'F1'`, `'M1'`) |
+| `voice` / `voiceName`     | string     | —          | Supertonic voice id (e.g. `'F1'`, `'M1'`); Parler template speaker name (e.g. `'Laura'`, `'Rohit'`) |
 | `steps` / `numInferenceSteps` | number | GGUF default | Supertonic vector-estimator CFM steps (`0` = GGUF default) |
 | `noiseNpyPath`            | string     | —          | Supertonic: optional fixed CFM noise `.npy` for reproducibility |
+| `description` / `voiceDescription` | string | fallback caption | Parler-only: full free-text voice description (mutually exclusive with the template fields) |
+| `emotion`, `pitch`, `pace`, `expressivity`, `noise`, `reverb`, `quality` | string | — | Parler-only template fields (see [Parler descriptions & emotions](#parler-descriptions--emotions)); invalid values error listing the valid set |
+| `temperature` / `topK` / `topP` | number | GGUF defaults | Parler-only sampling knobs (`0`/omit = the GGUF's defaults: temp 1.0, top-k 50; `topP` in `(0, 1]`) |
+| `maxFrames`               | number     | GGUF max (~30 s) | Parler-only generation cap in decoder steps (~86/s of audio); `0` = model default, 1–9 rejected |
+| `minNewTokens`            | number     | GGUF default | Parler-only minimum tokens before EOS (`-1` = model default) |
+| `normalizeNumbers`        | boolean    | `true`     | Parler-only: expand digits before tokenization (English words; script-native digits on indic) — parler voices raw digits badly |
 | `mecabDictDir`            | string     | —          | Chatterbox MTL Japanese (`ja`): compiled MeCab/IPAdic dictionary directory |
 | `cangjieTsvPath`          | string     | —          | Chatterbox MTL Chinese (`zh`): `Cangjie5_TC` TSV path |
 | `backendsDir`             | string     | `path.join(__dirname, 'prebuilds')` | Root dir the addon scans for dynamically-loaded ggml backend `.so` files.  Required on Android (host should pass `path.join(__dirname, 'prebuilds')`); ignored on platforms that statically link the backend |
@@ -410,7 +459,7 @@ All `run*` methods return a `QvacResponse` (from `@qvac/infer-base`):
 ```js
 response.onUpdate(data => {
   data.outputArray   // Int16Array — mono PCM
-  data.sampleRate    // actual rate: Chatterbox 24000, Supertonic 44100, enhancer 48000
+  data.sampleRate    // actual rate: Chatterbox 24000, Supertonic/Parler 44100, enhancer 48000
   data.chunkIndex    // present on sentence-streaming events only
   data.sentenceChunk // present on sentence-streaming events only
 })
@@ -447,6 +496,7 @@ Runnable demos under `examples/`:
 | `supertonic-mtl-sweep-tts.js` | Multilingual Supertonic sweep across languages |
 | `supertonic-sentence-stream-tts.js` | Supertonic sentence-level streaming |
 | `supertonic-enhanced.js` | Supertonic + LavaSR 48 kHz enhancement. `bare examples/supertonic-enhanced.js "Hello"` |
+| `parler-tts.js` | Parler batch synth with voice/emotion templates. `bare examples/parler-tts.js "Hello" Laura happy` |
 
 The two streaming examples feed PCM into a single long-running
 `sox play` / `ffplay` process so chunks play back-to-back without any

@@ -12,6 +12,8 @@ const REGISTRY_DATE_Q4_0 = '2026-05-18'
 // the block-quant q8_0 / q4_0 tiers under the 2026-06-15 build.
 const REGISTRY_DATE_SUPERTONIC3 = '2026-06-10'
 const REGISTRY_DATE_SUPERTONIC3_QUANT = '2026-06-15'
+// Parler family (mini / large / indic) publish date.
+const REGISTRY_DATE_PARLER = '2026-07-17'
 const OUT_DIR = path.resolve(__dirname, '..', 'models')
 
 const GROUPS = {
@@ -66,6 +68,18 @@ const GROUPS = {
     {
       name: 'supertonic3-q4_0.gguf',
       registryPath: `qvac_models_compiled/ggml/supertonic/${REGISTRY_DATE_SUPERTONIC3_QUANT}/supertonic3-q4_0.gguf`
+    }
+  ],
+  // Parler ships several variants/tiers (mini/large q8_0+q6_k, indic
+  // f32/f16/q8_0) but the group stays mini-q8_0-only on purpose: CI's
+  // default `--group all` fetches every group defined here, and the
+  // integration tests fetch what else they need (e.g. the indic q8_0)
+  // through test/utils/downloadModel.js directly.  Quant-tagged on-disk
+  // name (tts-cpp reads the quant from GGUF metadata, not the filename).
+  parler: [
+    {
+      name: 'parler-mini-v1-q8_0.gguf',
+      registryPath: `qvac_models_compiled/ggml/parler/${REGISTRY_DATE_PARLER}/parler-mini-v1-q8_0.gguf`
     }
   ]
 }

@@ -2,8 +2,8 @@ import type QvacResponse from '@qvac/infer-base/src/QvacResponse'
 
 /**
  * Model file paths for the GGML TTS backend.  Engine is auto-detected
- * from these fields (chatterbox vs supertonic) unless overridden via
- * `TTSGgmlOptions.engine`.  All paths must be absolute (passed through
+ * from these fields (chatterbox vs supertonic vs parler) unless overridden
+ * via `TTSGgmlOptions.engine`.  All paths must be absolute (passed through
  * to the native layer as-is).
  */
 declare interface TTSGgmlFiles {
@@ -12,6 +12,7 @@ declare interface TTSGgmlFiles {
    * `chatterbox-t3-turbo.gguf` + `chatterbox-s3gen.gguf` (turbo) or
    * `chatterbox-t3-mtl.gguf` + `chatterbox-s3gen-mtl.gguf` (multilingual).
    * For Supertonic, expected to contain `supertonic.gguf`.
+   * For Parler, expected to contain a `parler-<mini|large|indic>[-vN][-<quant>].gguf`.
    */
   modelDir?: string
   /** Chatterbox T3 (text -> speech tokens) GGUF path. Overrides `modelDir`. */
@@ -26,6 +27,13 @@ declare interface TTSGgmlFiles {
   supertonicModel?: string
   supertonicModelPath?: string
   supertonic?: string
+  /**
+   * Parler single-file GGUF path (mini / large / indic variant — the
+   * variant and quant are read from the GGUF metadata). Overrides `modelDir`.
+   */
+  parlerModel?: string
+  parlerModelPath?: string
+  parler?: string
   /**
    * LavaSR enhancer GGUF: single-file Vocos bandwidth extension produced by
    * tts-cpp/scripts/convert-lavasr-enhancer-to-gguf.py. When supplied, output
@@ -108,13 +116,48 @@ declare interface LavaSRDenoiserOptions {
   denoiserPath?: string
 }
 
-declare interface TTSGgmlOptions {
+/**
+ * Parler voice-description surface: either a full free-text `description`
+ * (alias `voiceDescription`), or template fields the native layer renders
+ * through tts-cpp's `build_description()` in the models' training-caption
+ * phrasing.  Description and template fields are mutually exclusive at the
+ * same level (constructor or per-call) — setting both throws.  Everything is
+ * optional: the all-defaults render is the models' recommended fallback
+ * caption ("The speaker speaks naturally. The recording is very high quality
+ * with no background noise."), so parler works with no description at all.
+ * Per-call template fields merge over constructor-level template fields; a
+ * per-call `description` wins outright for that call.
+ */
+declare interface ParlerDescriptionOptions {
+  /** Full free-text voice description (mutually exclusive with the template fields). */
+  description?: string
+  /** Alias for `description`. */
+  voiceDescription?: string
+  /** Speaker name used as the description subject (e.g. 'Rohit', 'Laura'; indic recommends per-language voices — hi: Rohit/Divya, gu: Yash/Neha). */
+  voice?: string
+  /** One of the 12 trained speaking styles (case-insensitive): command, anger, narration, conversation, disgust, fear, happy, neutral, proper noun, news, sad, surprise.  Officially emotion-tested on 10 indic languages (not hi/gu); elsewhere best-effort. */
+  emotion?: string
+  /** 'low' | 'moderate' | 'high'. */
+  pitch?: string
+  /** 'slow' | 'moderate' | 'fast'. */
+  pace?: string
+  /** 'monotone' | 'slightly expressive' | 'expressive'. */
+  expressivity?: string
+  /** 'clear' (default) | 'noisy' — background-noise level in the rendered caption. */
+  noise?: string
+  /** 'close' (default) | 'distant' — perceived speaker distance. */
+  reverb?: string
+  /** 'basic' | 'high' | 'very high' (default) — recording quality. */
+  quality?: string
+}
+
+declare interface TTSGgmlOptions extends ParlerDescriptionOptions {
   files?: TTSGgmlFiles
   config?: TTSGgmlRuntimeConfig
   logger?: object
   lazySessionLoading?: boolean
-  /** Explicit engine selection ('chatterbox' | 'supertonic').  Auto-detected from `files` when omitted. */
-  engine?: 'chatterbox' | 'supertonic'
+  /** Explicit engine selection ('chatterbox' | 'supertonic' | 'parler').  Auto-detected from `files` when omitted. */
+  engine?: 'chatterbox' | 'supertonic' | 'parler'
   /** Chatterbox: voice-cloning reference audio path (wav). */
   referenceAudio?: string
   /** Chatterbox: directory of baked voice-conditioning tensors. */
@@ -144,10 +187,22 @@ declare interface TTSGgmlOptions {
    * rejected. Maps to `tts-cpp` `EngineOptions::s3gen_cfg_rate`.
    */
   cfgRate?: number
-  /** Supertonic: voice id baked into the GGUF (e.g. 'F1', 'F2', 'M1', 'M2'). */
+  /** Supertonic: voice id baked into the GGUF (e.g. 'F1', 'F2', 'M1', 'M2').  Parler: template speaker name (see ParlerDescriptionOptions.voice). */
   voice?: string
   /** Alias for `voice` (cross-compat with `@qvac/tts-onnx`). */
   voiceName?: string
+  /** Parler-only: sampling temperature (>= 0; 0 or omit = the GGUF's generation default, 1.0). */
+  temperature?: number
+  /** Parler-only: top-k sampling cutoff (>= 0; 0 or omit = the GGUF's default, 50). */
+  topK?: number
+  /** Parler-only: nucleus sampling threshold in (0, 1]; omit = disabled (1.0). */
+  topP?: number
+  /** Parler-only: generation cap in delay-pattern decoder steps (~86/s of audio); 0 or omit = the GGUF's max length (~30 s).  Values 1-9 are rejected (under the delay-pattern warmup). */
+  maxFrames?: number
+  /** Parler-only: minimum generated tokens before EOS is allowed (-1 or omit = the GGUF default). */
+  minNewTokens?: number
+  /** Parler-only: expand digits in the prompt before tokenization (English words, or script-native digits on the indic model).  Default true — parler voices raw digits badly. */
+  normalizeNumbers?: boolean
   /** Supertonic: number of vector-estimator (CFM) steps.  0 -> GGUF default. */
   steps?: number
   /** Alias for `steps` (cross-compat with `@qvac/tts-onnx`). */
@@ -215,6 +270,7 @@ declare class TTSGgml {
 
   static readonly ENGINE_CHATTERBOX: 'chatterbox'
   static readonly ENGINE_SUPERTONIC: 'supertonic'
+  static readonly ENGINE_PARLER: 'parler'
 
   load(...args: unknown[]): Promise<void>
   unload(): Promise<void>
@@ -223,7 +279,7 @@ declare class TTSGgml {
   cancel(): Promise<void>
   getApiDefinition(): string
   getState(): { configLoaded: boolean; weightsLoaded: boolean; destroyed: boolean }
-  getEngineType(): 'chatterbox' | 'supertonic'
+  getEngineType(): 'chatterbox' | 'supertonic' | 'parler'
 
   opts: object
   exclusiveRun: boolean
@@ -277,8 +333,8 @@ declare namespace TTSGgml {
     outputArray: ArrayBuffer
     /**
      * Output sample rate. The native engine rate (24000 for Chatterbox,
-     * 44100 for Supertonic) — or 48000 when the LavaSR enhancer is active,
-     * which neurally upsamples the output regardless of engine.
+     * 44100 for Supertonic and Parler) — or 48000 when the LavaSR enhancer
+     * is active, which neurally upsamples the output regardless of engine.
      */
     sampleRate?: number
   }
@@ -290,7 +346,7 @@ declare namespace TTSGgml {
     isLast?: boolean
   }
 
-  export interface SentenceStreamOptions {
+  export interface SentenceStreamOptions extends ParlerDescriptionOptions {
     /** BCP-47 locale for Intl.Segmenter when available. */
     locale?: string
     /** Max graphemes per chunk (defaults: 300, or 120 when language is ko). */
@@ -304,7 +360,7 @@ declare namespace TTSGgml {
     | Iterable<string>
     | AsyncIterable<string>
 
-  export interface RunStreamingOptions {
+  export interface RunStreamingOptions extends ParlerDescriptionOptions {
     accumulateSentences?: boolean
     sentenceDelimiter?: RegExp
     sentenceDelimiterPreset?: 'latin' | 'cjk' | 'multilingual'
@@ -312,7 +368,7 @@ declare namespace TTSGgml {
     flushAfterMs?: number
   }
 
-  export type TTSRunInput = {
+  export type TTSRunInput = ParlerDescriptionOptions & {
     type?: string
     input: string
     streamOutput?: boolean
@@ -329,6 +385,7 @@ declare namespace TTSGgml {
     TTSGgmlOptions,
     LavaSREnhancerOptions,
     LavaSRDenoiserOptions,
+    ParlerDescriptionOptions,
     TTSGgmlRuntimeConfig,
     RuntimeStats,
     SentenceStreamChunkMeta,

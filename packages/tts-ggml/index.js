@@ -16,6 +16,7 @@ const { accumulateTextStream, DEFAULT_FLUSH_AFTER_MS } = require('./lib/textStre
 
 const ENGINE_CHATTERBOX = 'chatterbox'
 const ENGINE_SUPERTONIC = 'supertonic'
+const ENGINE_PARLER = 'parler'
 
 // Accepted output sample-rate window (Hz): below 8 kHz speech is unintelligible;
 // above 192 kHz is past any audio DAC and only wastes memory/CPU on resampling.
@@ -40,6 +41,32 @@ const SUPERTONIC_MTL = 'supertonic2.gguf'
 const SUPERTONIC_V3_RE = /^supertonic3(-[a-z0-9_]+)?\.gguf$/i
 // Preference when several v3 tiers share a modelDir: highest precision first.
 const SUPERTONIC_V3_QUANT_ORDER = ['f16', 'f32', 'q8_0', 'q4_0']
+// Parler-TTS family (mini / large / indic).  One thin engine — variant and
+// quant are read from the GGUF metadata by tts-cpp at load time, so the addon
+// only needs to recognise the filenames for the modelDir auto-detect path.
+// GGUFs are published per quant tier with the quant in the filename
+// (`parler-mini-v1-q8_0.gguf`, `parler-indic-q8_0.gguf`, ...); a deliberate
+// non-match for a bare `parler.gguf` keeps ambiguous files out.
+const PARLER_RE = /^parler-(mini|large|indic)(-v\d+)?(-[a-z0-9_]+)?\.gguf$/i
+// Preference when several parler GGUFs share a modelDir: smallest capable
+// variant first, then the highest-precision shipped tier within a variant.
+const PARLER_VARIANT_ORDER = ['mini', 'large', 'indic']
+const PARLER_QUANT_ORDER = ['q8_0', 'q6_k', 'f16', 'f32']
+
+// Per-call / constructor description inputs for the parler engine: either a
+// full free-text description, or template fields rendered natively through
+// tts-cpp's build_description().  Mutually exclusive at the same level.
+const PARLER_DESCRIPTION_KEYS = ['description', 'voiceDescription']
+const PARLER_TEMPLATE_KEYS = [
+  'voice',
+  'emotion',
+  'pitch',
+  'pace',
+  'expressivity',
+  'noise',
+  'reverb',
+  'quality'
+]
 
 function firstNonEmpty(...candidates) {
   for (let i = 0; i < candidates.length; i++) {
@@ -90,6 +117,79 @@ function findSupertonicV3InDir(modelDir) {
 }
 
 /**
+ * Find a Parler GGUF inside `modelDir`.  Ranks by variant (mini before
+ * large before indic) and, within a variant, by quant tier (highest
+ * shipped precision first; a bare `parler-<variant>.gguf` wins as
+ * forward-compat, mirroring findSupertonicV3InDir).
+ *
+ * @param {string|undefined} modelDir
+ * @returns {string|undefined}
+ */
+function findParlerInDir(modelDir) {
+  if (!modelDir) return undefined
+  let entries
+  try {
+    entries = fs.readdirSync(modelDir)
+  } catch (_e) {
+    return undefined
+  }
+  const matches = entries.filter((n) => PARLER_RE.test(n))
+  if (matches.length === 0) return undefined
+  const rank = (n) => {
+    const m = n.match(PARLER_RE)
+    const variant = PARLER_VARIANT_ORDER.indexOf(m[1].toLowerCase())
+    let quantRank = 0
+    if (m[3]) {
+      const idx = PARLER_QUANT_ORDER.indexOf(m[3].slice(1).toLowerCase())
+      quantRank = idx === -1 ? PARLER_QUANT_ORDER.length + 2 : idx + 1
+    }
+    return variant * 100 + quantRank
+  }
+  matches.sort((a, b) => rank(a) - rank(b))
+  return path.join(modelDir, matches[0])
+}
+
+/**
+ * Collect the parler description/template properties present on `src`
+ * (a run() input object, streaming options, or constructor options).
+ * Returns undefined when none are set.
+ */
+function pickParlerDescFields(src) {
+  if (src == null || typeof src !== 'object') return undefined
+  const out = {}
+  let any = false
+  for (const k of PARLER_DESCRIPTION_KEYS.concat(PARLER_TEMPLATE_KEYS)) {
+    const v = src[k]
+    if (v != null && v !== '') {
+      out[k] = String(v)
+      any = true
+    }
+  }
+  return any ? out : undefined
+}
+
+/**
+ * Same-level conflict check: a free-text description cannot be merged with
+ * template fields, so setting both together is an error (never silently
+ * preferring one).
+ */
+function assertParlerDescFieldsConsistent(fields, where) {
+  if (!fields) return
+  const hasDescription = PARLER_DESCRIPTION_KEYS.some((k) => fields[k] != null)
+  const templateKeys = PARLER_TEMPLATE_KEYS.filter((k) => fields[k] != null)
+  if (hasDescription && templateKeys.length > 0) {
+    throw new Error(
+      'tts-ggml: ' +
+        where +
+        ": 'description' is mutually exclusive with the voice-template " +
+        'options (got ' +
+        templateKeys.join(', ') +
+        ')'
+    )
+  }
+}
+
+/**
  * Normalize the `files` map into the GGUF paths each engine variant needs.
  * Accepts:
  *   - Chatterbox: explicit `t3Model`/`s3genModel`, or a `modelDir` that
@@ -111,6 +211,7 @@ function normalizeGgmlFiles(files) {
     t3Model: firstNonEmpty(f.t3Model, f.t3ModelPath, f.t3),
     s3genModel: firstNonEmpty(f.s3genModel, f.s3genModelPath, f.s3gen),
     supertonicModel: firstNonEmpty(f.supertonicModel, f.supertonicModelPath, f.supertonic),
+    parlerModel: firstNonEmpty(f.parlerModel, f.parlerModelPath, f.parler),
     voicesDir: firstNonEmpty(f.voicesDir),
     // LavaSR enhancer GGUF: single-file Vocos bandwidth extension, produced by
     // tts-cpp/scripts/convert-lavasr-enhancer-to-gguf.py. One canonical key
@@ -141,16 +242,20 @@ function normalizeGgmlFiles(files) {
  *      Chatterbox path resolver based on which T3 file is present).
  */
 function detectEngineType(engine, normalizedFiles) {
-  if (engine === ENGINE_CHATTERBOX || engine === ENGINE_SUPERTONIC) {
+  if (engine === ENGINE_CHATTERBOX || engine === ENGINE_SUPERTONIC || engine === ENGINE_PARLER) {
     return engine
   }
   if (engine != null && engine !== '') {
     throw new Error(
-      "tts-ggml: 'engine' option must be 'chatterbox' or 'supertonic' " + "(got '" + engine + "')"
+      "tts-ggml: 'engine' option must be 'chatterbox', 'supertonic' or 'parler' " +
+        "(got '" +
+        engine +
+        "')"
     )
   }
   if (normalizedFiles.t3Model || normalizedFiles.s3genModel) return ENGINE_CHATTERBOX
   if (normalizedFiles.supertonicModel) return ENGINE_SUPERTONIC
+  if (normalizedFiles.parlerModel) return ENGINE_PARLER
   if (normalizedFiles.modelDir) {
     const turboT3 = path.join(normalizedFiles.modelDir, CHATTERBOX_T3_TURBO)
     const mtlT3 = path.join(normalizedFiles.modelDir, CHATTERBOX_T3_MTL)
@@ -162,6 +267,7 @@ function detectEngineType(engine, normalizedFiles) {
       fileExistsSafe(supertonicEn) || fileExistsSafe(supertonicMtl) || !!supertonicV3
     if (hasChatterbox) return ENGINE_CHATTERBOX
     if (hasSupertonic) return ENGINE_SUPERTONIC
+    if (findParlerInDir(normalizedFiles.modelDir)) return ENGINE_PARLER
   }
   return ENGINE_CHATTERBOX
 }
@@ -392,6 +498,18 @@ class TTSGgml {
       )
       this._t3ModelPath = undefined
       this._s3genModelPath = undefined
+      this._parlerModelPath = undefined
+      return
+    }
+    if (this._engineType === ENGINE_PARLER) {
+      const root = normalizedFiles.modelDir
+      this._parlerModelPath = firstNonEmpty(
+        normalizedFiles.parlerModel,
+        root ? findParlerInDir(root) : undefined
+      )
+      this._t3ModelPath = undefined
+      this._s3genModelPath = undefined
+      this._supertonicModelPath = undefined
       return
     }
     const root = normalizedFiles.modelDir
@@ -404,6 +522,7 @@ class TTSGgml {
       this._s3genModelPath = normalizedFiles.s3genModel
     }
     this._supertonicModelPath = undefined
+    this._parlerModelPath = undefined
   }
 
   // Multilingual preprocessing dictionaries (Chatterbox MTL only): accept a
@@ -434,6 +553,28 @@ class TTSGgml {
     this._steps = firstNonEmpty(options.steps, options.numInferenceSteps)
     this._speed = options.speed
     this._noiseNpyPath = options.noiseNpyPath
+
+    // Parler voice-description surface: either a full free-text description
+    // or template fields the native layer renders through tts-cpp's
+    // build_description().  All optional — the all-defaults render is the
+    // models' recommended fallback caption, so parler works with no
+    // description configuration at all.
+    this._description = firstNonEmpty(options.description, options.voiceDescription)
+    this._emotion = options.emotion
+    this._pitch = options.pitch
+    this._pace = options.pace
+    this._expressivity = options.expressivity
+    this._noise = options.noise
+    this._reverb = options.reverb
+    this._quality = options.quality
+    // Parler sampling / generation knobs (unset defers to the GGUF's
+    // generation defaults: temperature 1.0, top-k 50, ~30 s max length).
+    this._temperature = options.temperature
+    this._topK = options.topK
+    this._topP = options.topP
+    this._maxFrames = options.maxFrames
+    this._minNewTokens = options.minNewTokens
+    this._normalizeNumbers = options.normalizeNumbers
   }
 
   // Per-platform fallback for backendsDir when the host didn't pass one; mirrors
@@ -462,6 +603,74 @@ class TTSGgml {
           'sentence native streaming; use sentence-level streaming via the engine-' +
           'agnostic runStream() / runStreaming() / run({ streamOutput: true }) APIs.'
       )
+    }
+    if (this._engineType === ENGINE_PARLER) {
+      if (this._streamChunkTokens != null || this._streamFirstChunkTokens != null) {
+        throw new Error(
+          'tts-ggml: streamChunkTokens / streamFirstChunkTokens are Chatterbox-only ' +
+            'options. Parler does not support sub-sentence native streaming; use ' +
+            'sentence-level streaming via runStream() / runStreaming() / ' +
+            'run({ streamOutput: true }).'
+        )
+      }
+      if (this._enhancerGgufPath || this._denoiserGgufPath) {
+        throw new Error(
+          'tts-ggml: the LavaSR enhancer/denoiser are not supported with the ' +
+            'parler engine (native 44.1 kHz output needs no bandwidth extension). ' +
+            'Drop lavasrEnhancer / lavasrDenoiser.'
+        )
+      }
+      // CPU is the validated backend for parler; reject explicit GPU intent
+      // instead of silently running on CPU anyway.
+      if (this._config.useGPU === true || (this._nGpuLayers != null && this._nGpuLayers !== 0)) {
+        throw new Error('tts-ggml: the parler engine is CPU-only; drop useGPU / nGpuLayers.')
+      }
+      // Same-level conflict: a free-text description cannot be merged with
+      // template fields (native re-validates; this throws earlier + clearer).
+      // Built from the stored values so the voiceName alias is covered too.
+      assertParlerDescFieldsConsistent(
+        pickParlerDescFields({
+          description: this._description,
+          voice: this._voice,
+          emotion: this._emotion,
+          pitch: this._pitch,
+          pace: this._pace,
+          expressivity: this._expressivity,
+          noise: this._noise,
+          reverb: this._reverb,
+          quality: this._quality
+        }),
+        'constructor'
+      )
+    } else {
+      const parlerOnly = []
+      if (this._description != null) parlerOnly.push('description/voiceDescription')
+      for (const [k, v] of Object.entries({
+        emotion: this._emotion,
+        pitch: this._pitch,
+        pace: this._pace,
+        expressivity: this._expressivity,
+        noise: this._noise,
+        reverb: this._reverb,
+        quality: this._quality,
+        temperature: this._temperature,
+        topK: this._topK,
+        topP: this._topP,
+        maxFrames: this._maxFrames,
+        minNewTokens: this._minNewTokens,
+        normalizeNumbers: this._normalizeNumbers
+      })) {
+        if (v != null) parlerOnly.push(k)
+      }
+      if (parlerOnly.length > 0) {
+        throw new Error(
+          'tts-ggml: ' +
+            parlerOnly.join(', ') +
+            ' are parler-only options (engine is ' +
+            this._engineType +
+            ')'
+        )
+      }
     }
     // LavaSR denoise + native chunk streaming is NOT supported yet: tts-cpp only
     // exposes a one-shot denoise() today, so reject the combo up front rather
@@ -547,7 +756,10 @@ class TTSGgml {
       }
       const streamOpts = {
         locale: input.locale,
-        maxChunkScalars: input.maxChunkScalars
+        maxChunkScalars: input.maxChunkScalars,
+        // One description-spec is pinned per streaming response and attached
+        // to every chunk's jobData (keeps the native T5 cross-KV cache hot).
+        parlerFields: this._resolveParlerJobFields(input, 'run')
       }
       if (this.exclusiveRun) {
         return await this._enqueueExclusiveTtsResponse(() =>
@@ -599,7 +811,10 @@ class TTSGgml {
       input: text,
       streamOutput: true,
       locale: opts.locale,
-      maxChunkScalars: opts.maxChunkScalars
+      maxChunkScalars: opts.maxChunkScalars,
+      // Parler per-call description/template options ride along and are
+      // validated inside run().
+      ...(pickParlerDescFields(opts) || {})
     })
   }
 
@@ -624,6 +839,7 @@ class TTSGgml {
    */
   async runStreaming(textStream, options = {}) {
     const streamOpts = this._resolveRunStreamingOptions(textStream, options)
+    const parlerFields = this._resolveParlerJobFields(options, 'runStreaming')
     let normalized = this._normalizeTextStream(textStream)
     if (streamOpts.accumulateSentences) {
       normalized = accumulateTextStream(normalized, {
@@ -636,10 +852,10 @@ class TTSGgml {
     }
     if (this.exclusiveRun) {
       return await this._enqueueExclusiveTtsResponse(() =>
-        this._runTextStreamOrchestrator(normalized)
+        this._runTextStreamOrchestrator(normalized, parlerFields)
       )
     }
-    return this._runTextStreamOrchestrator(normalized)
+    return this._runTextStreamOrchestrator(normalized, parlerFields)
   }
 
   _resolveRunStreamingOptions(textStream, options) {
@@ -704,7 +920,7 @@ class TTSGgml {
     })
   }
 
-  _runTextStreamOrchestrator(asyncTextSource) {
+  _runTextStreamOrchestrator(asyncTextSource, parlerFields) {
     const response = this._job.start()
     this._sentenceStreamCtx = {
       textStreamMode: true,
@@ -716,7 +932,8 @@ class TTSGgml {
         audioDurationMs: 0,
         totalSamples: 0
       },
-      chunkResolver: null
+      chunkResolver: null,
+      parlerFields
     }
 
     this._sentenceStreamTextIterableDrive().catch((err) => {
@@ -742,7 +959,8 @@ class TTSGgml {
         })
         await this.addon.runJob({
           type: 'text',
-          input: s
+          input: s,
+          ...(ctx.parlerFields || {})
         })
         await donePromise
       }
@@ -795,7 +1013,8 @@ class TTSGgml {
         audioDurationMs: 0,
         totalSamples: 0
       },
-      chunkResolver: null
+      chunkResolver: null,
+      parlerFields: options.parlerFields
     }
 
     this._sentenceStreamDriveBody().catch((err) => {
@@ -817,7 +1036,8 @@ class TTSGgml {
       })
       await this.addon.runJob({
         type: 'text',
-        input: ctx.chunks[i]
+        input: ctx.chunks[i],
+        ...(ctx.parlerFields || {})
       })
       await donePromise
     }
@@ -846,7 +1066,61 @@ class TTSGgml {
     if (this._engineType === ENGINE_SUPERTONIC) {
       return this._buildSupertonicParams()
     }
+    if (this._engineType === ENGINE_PARLER) {
+      return this._buildParlerParams()
+    }
     return this._buildChatterboxParams()
+  }
+
+  _buildParlerParams() {
+    // Re-checked here (not just the constructor) so reload({...}) can't
+    // smuggle in GPU intent or a description/template conflict.
+    if (this._config?.useGPU === true || (this._nGpuLayers != null && this._nGpuLayers !== 0)) {
+      throw new Error('tts-ggml: the parler engine is CPU-only; drop useGPU / nGpuLayers.')
+    }
+    if (this._description != null) {
+      const templateSet = [
+        this._voice,
+        this._emotion,
+        this._pitch,
+        this._pace,
+        this._expressivity,
+        this._noise,
+        this._reverb,
+        this._quality
+      ].some((v) => v != null && v !== '')
+      if (templateSet) {
+        throw new Error(
+          "tts-ggml: 'description' is mutually exclusive with the voice-template options"
+        )
+      }
+    }
+    const params = {
+      engineType: ENGINE_PARLER,
+      parlerModelPath: this._parlerModelPath || ''
+    }
+    if (this._description != null) params.description = String(this._description)
+    if (this._voice) params.voice = String(this._voice)
+    if (this._emotion != null) params.emotion = String(this._emotion)
+    if (this._pitch != null) params.pitch = String(this._pitch)
+    if (this._pace != null) params.pace = String(this._pace)
+    if (this._expressivity != null) params.expressivity = String(this._expressivity)
+    if (this._noise != null) params.noise = String(this._noise)
+    if (this._reverb != null) params.reverb = String(this._reverb)
+    if (this._quality != null) params.quality = String(this._quality)
+    if (this._seed != null) params.seed = this._seed | 0
+    if (this._threads != null) params.threads = this._threads | 0
+    if (this._temperature != null) params.temperature = Number(this._temperature)
+    if (this._topK != null) params.topK = this._topK | 0
+    if (this._topP != null) params.topP = Number(this._topP)
+    if (this._maxFrames != null) params.maxFrames = this._maxFrames | 0
+    if (this._minNewTokens != null) params.minNewTokens = this._minNewTokens | 0
+    if (this._outputSampleRate != null) {
+      params.outputSampleRate = this._outputSampleRate | 0
+    }
+    if (this._normalizeNumbers != null) params.normalizeNumbers = !!this._normalizeNumbers
+    if (this._backendsDir) params.backendsDir = this._backendsDir
+    return params
   }
 
   _buildChatterboxParams() {
@@ -956,7 +1230,46 @@ class TTSGgml {
     this.state.destroyed = true
   }
 
+  /**
+   * Extract + validate the per-call parler description/template fields from
+   * a run() input object or streaming options.  Returns undefined when none
+   * are present.  Parler-only: any of these keys on another engine throws
+   * (never silently ignored).  A per-call template cannot be merged with a
+   * constructor-level free-text description — rejected here and natively.
+   */
+  _resolveParlerJobFields(src, where) {
+    const fields = pickParlerDescFields(src)
+    if (!fields) return undefined
+    if (this._engineType !== ENGINE_PARLER) {
+      throw new Error(
+        'tts-ggml: ' +
+          where +
+          ': per-call description/voice-template options are parler-only ' +
+          '(engine is ' +
+          this._engineType +
+          ')'
+      )
+    }
+    assertParlerDescFieldsConsistent(fields, where)
+    const hasDescription = PARLER_DESCRIPTION_KEYS.some((k) => fields[k] != null)
+    if (!hasDescription && this._description != null) {
+      throw new Error(
+        'tts-ggml: ' +
+          where +
+          ': per-call template options cannot be combined with a constructor-' +
+          'level description; pass a per-call description instead'
+      )
+    }
+    return fields
+  }
+
   async _runInternal(input) {
+    // Parler honours per-call description/voice-template properties on the
+    // input object (resolved once here, forwarded on the jobData).  Other
+    // per-request overrides (e.g. input.outputSampleRate) are still
+    // construction/reload-time only.
+    const parlerFields = this._resolveParlerJobFields(input, 'run')
+
     const signal = input && input.signal
     const response = this._job.start({ signal })
 
@@ -970,14 +1283,11 @@ class TTSGgml {
     }
 
     try {
-      // Per-request overrides (e.g. input.outputSampleRate) are not
-      // honoured by the native engine today — all synthesis knobs are
-      // resolved at construction / reload.  Route those through
-      // `model.reload({...})` instead when the engine exposes them.
       const jobData = {
         type: input.type || 'text',
         input: input.input
       }
+      if (parlerFields) Object.assign(jobData, parlerFields)
 
       await this.addon.runJob(jobData)
     } catch (error) {
@@ -1121,6 +1431,31 @@ class TTSGgml {
     if (newConfig.outputSampleRate !== undefined)
       this._outputSampleRate = newConfig.outputSampleRate
 
+    // Parler description/template + sampling knobs are reloadable (they
+    // rebuild the engine's default description / sampler); parler-only —
+    // _buildTtsParams re-validates so a wrong-engine reload still throws.
+    if (this._engineType === ENGINE_PARLER) {
+      if (newConfig.description !== undefined || newConfig.voiceDescription !== undefined) {
+        this._description = firstNonEmpty(newConfig.description, newConfig.voiceDescription)
+      }
+      if (newConfig.voice !== undefined) this._voice = newConfig.voice
+      if (newConfig.emotion !== undefined) this._emotion = newConfig.emotion
+      if (newConfig.pitch !== undefined) this._pitch = newConfig.pitch
+      if (newConfig.pace !== undefined) this._pace = newConfig.pace
+      if (newConfig.expressivity !== undefined) this._expressivity = newConfig.expressivity
+      if (newConfig.noise !== undefined) this._noise = newConfig.noise
+      if (newConfig.reverb !== undefined) this._reverb = newConfig.reverb
+      if (newConfig.quality !== undefined) this._quality = newConfig.quality
+      if (newConfig.temperature !== undefined) this._temperature = newConfig.temperature
+      if (newConfig.topK !== undefined) this._topK = newConfig.topK
+      if (newConfig.topP !== undefined) this._topP = newConfig.topP
+      if (newConfig.maxFrames !== undefined) this._maxFrames = newConfig.maxFrames
+      if (newConfig.minNewTokens !== undefined) this._minNewTokens = newConfig.minNewTokens
+      if (newConfig.normalizeNumbers !== undefined)
+        this._normalizeNumbers = newConfig.normalizeNumbers
+      if (newConfig.seed !== undefined) this._seed = newConfig.seed
+    }
+
     const ttsParams = this._buildTtsParams()
 
     await this.cancel()
@@ -1143,8 +1478,10 @@ class TTSGgml {
 
   static ENGINE_CHATTERBOX = ENGINE_CHATTERBOX
   static ENGINE_SUPERTONIC = ENGINE_SUPERTONIC
+  static ENGINE_PARLER = ENGINE_PARLER
 }
 
 module.exports = TTSGgml
 module.exports.ENGINE_CHATTERBOX = ENGINE_CHATTERBOX
 module.exports.ENGINE_SUPERTONIC = ENGINE_SUPERTONIC
+module.exports.ENGINE_PARLER = ENGINE_PARLER
