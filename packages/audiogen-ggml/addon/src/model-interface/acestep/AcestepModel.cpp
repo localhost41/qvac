@@ -1,0 +1,149 @@
+#include "model-interface/acestep/AcestepModel.hpp"
+
+#include <chrono>
+#include <stdexcept>
+#include <utility>
+
+#include "tts-cpp/acestep/engine.h"
+
+namespace qvac::audiogenggml::acestep {
+
+namespace {
+int16_t f32_to_i16(float x) {
+  float v = x * 32767.0F;
+  if (v > 32767.0F) v = 32767.0F;
+  if (v < -32768.0F) v = -32768.0F;
+  return static_cast<int16_t>(v);
+}
+}  // namespace
+
+AcestepModel::AcestepModel(AcestepConfig config) : cfg_(std::move(config)) {
+  validateConfig(cfg_);
+}
+
+AcestepModel::~AcestepModel() noexcept {
+  try {
+    std::lock_guard lk(engineMu_);
+    unloadLocked();
+  } catch (...) {
+  }
+}
+
+void AcestepModel::validateConfig(const AcestepConfig& cfg) {
+  const bool hasDir = !cfg.modelDir.empty();
+  const bool hasExplicit = !cfg.lmModelPath.empty() && !cfg.ditModelPath.empty() &&
+                           !cfg.textEncModelPath.empty() && !cfg.vaeModelPath.empty();
+  if (!hasDir && !hasExplicit) {
+    throw std::invalid_argument(
+        "AcestepModel: set `modelDir` or all four explicit stage GGUF paths "
+        "(textEnc/lm/dit/vae)");
+  }
+}
+
+void AcestepModel::load() {
+  std::lock_guard lk(engineMu_);
+  loadLocked();
+}
+
+void AcestepModel::loadLocked() {
+  if (engine_) return;
+
+  tts_cpp::acestep::EngineOptions opts;
+  opts.models_dir = cfg_.modelDir;
+  opts.text_enc_model_path = cfg_.textEncModelPath;
+  opts.lm_model_path = cfg_.lmModelPath;
+  opts.dit_model_path = cfg_.ditModelPath;
+  opts.vae_model_path = cfg_.vaeModelPath;
+  opts.n_threads = cfg_.threads.value_or(0);
+  opts.n_gpu_layers = cfg_.useGpu.value_or(false) ? cfg_.nGpuLayers.value_or(99)
+                                                  : cfg_.nGpuLayers.value_or(0);
+
+  engine_ = tts_cpp::acestep::Engine::create(opts);
+  if (!engine_) {
+    throw std::runtime_error("AcestepModel: failed to create acestep engine");
+  }
+  sampleRate_ = engine_->sample_rate();
+  backendName_ = engine_->backend_name();
+}
+
+void AcestepModel::unload() {
+  std::lock_guard lk(engineMu_);
+  unloadLocked();
+}
+
+void AcestepModel::unloadLocked() { engine_.reset(); }
+
+void AcestepModel::reload() {
+  std::lock_guard lk(engineMu_);
+  unloadLocked();
+  loadLocked();
+}
+
+void AcestepModel::cancel() const {
+  cancelRequested_.store(true);
+  std::lock_guard lk(engineMu_);
+  if (engine_) engine_->cancel();
+}
+
+std::any AcestepModel::process(const std::any& input) {
+  const auto& in = std::any_cast<const AnyInput&>(input);
+  return std::any(generate(in));
+}
+
+AcestepModel::Output AcestepModel::generate(const AnyInput& in) {
+  cancelRequested_.store(false);
+  jobInProgress_.store(true);
+  const auto t0 = std::chrono::steady_clock::now();
+
+  std::shared_ptr<tts_cpp::acestep::Engine> engine;
+  {
+    std::lock_guard lk(engineMu_);
+    if (!engine_) loadLocked();
+    engine = engine_;
+  }
+
+  tts_cpp::acestep::GenerateParams params;
+  params.caption = in.caption;
+  params.lyrics = in.lyrics;
+  params.vocal_language = in.vocalLanguage;
+  params.seed = in.seed;
+  // 0 = auto: the engine resolves steps/shift from the DiT model type
+  // (turbo -> 8 / shift 3.0, base/sft -> 50 / shift 1.0). Forcing 8/3.0 here
+  // would make a base/sft model render with turbo settings and sound wrong.
+  params.inference_steps = cfg_.inferenceSteps.value_or(0);
+  params.shift = cfg_.shift.value_or(0.0F);
+
+  auto progress = [this](const std::string&, int, int) -> bool {
+    return !cancelRequested_.load();
+  };
+
+  tts_cpp::acestep::GenerateResult result = engine->generate(params, progress);
+
+  Output pcm;
+  pcm.reserve(result.pcm.size());
+  for (float s : result.pcm) pcm.push_back(f32_to_i16(s));
+
+  const auto t1 = std::chrono::steady_clock::now();
+  totalTime_ = std::chrono::duration<double, std::milli>(t1 - t0).count();
+  totalSamples_ = static_cast<int64_t>(pcm.size());
+  sampleRate_ = result.sample_rate;
+  const int channels = result.channels > 0 ? result.channels : 2;
+  audioDurationMs_ =
+      sampleRate_ > 0
+          ? (static_cast<double>(totalSamples_) / channels / sampleRate_) * 1000.0
+          : 0.0;
+  realTimeFactor_ = audioDurationMs_ > 0.0 ? totalTime_ / audioDurationMs_ : 0.0;
+
+  jobInProgress_.store(false);
+  return pcm;
+}
+
+qvac_lib_inference_addon_cpp::RuntimeStats AcestepModel::runtimeStats() const {
+  qvac_lib_inference_addon_cpp::RuntimeStats stats;
+  stats.totalTimeMs = totalTime_;
+  stats.audioDurationMs = audioDurationMs_;
+  stats.realTimeFactor = realTimeFactor_;
+  return stats;
+}
+
+}  // namespace qvac::audiogenggml::acestep

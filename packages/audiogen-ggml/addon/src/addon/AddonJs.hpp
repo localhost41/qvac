@@ -1,0 +1,134 @@
+#pragma once
+
+#include <any>
+#include <memory>
+#include <span>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include <js.h>
+#include <inference-addon-cpp/JsInterface.hpp>
+#include <inference-addon-cpp/JsUtils.hpp>
+#include <inference-addon-cpp/ModelInterfaces.hpp>
+#include <inference-addon-cpp/addon/AddonJs.hpp>
+#include <inference-addon-cpp/handlers/JsOutputHandlerImplementations.hpp>
+#include <inference-addon-cpp/handlers/OutputHandler.hpp>
+#include <inference-addon-cpp/queue/OutputCallbackJs.hpp>
+
+#include "js-interface/JSAdapter.hpp"
+#include "model-interface/acestep/AcestepModel.hpp"
+
+namespace qvac::audiogenggml::addon_js {
+
+namespace js = qvac_lib_inference_addon_cpp::js;
+
+using acestep::AcestepModel;
+
+// Emits the generated track as interleaved stereo Int16 + sample rate, mirror
+// of ttsggml::JsAudioOutputHandler.
+struct JsAudioOutputHandler
+    : qvac_lib_inference_addon_cpp::out_handl::JsBaseOutputHandler<
+          std::vector<int16_t>> {
+  explicit JsAudioOutputHandler(int sampleRate)
+      : qvac_lib_inference_addon_cpp::out_handl::JsBaseOutputHandler<
+            std::vector<int16_t>>(
+            [this, sampleRate](
+                const std::vector<int16_t>& data) -> js_value_t* {
+              auto result = js::Object::create(this->env_);
+              std::span<const int16_t> outputSpan(data.data(), data.size());
+              auto typedArray =
+                  js::TypedArray<int16_t>::create(this->env_, outputSpan);
+              result.setProperty(this->env_, "outputArray", typedArray);
+              result.setProperty(
+                  this->env_, "sampleRate",
+                  js::Number::create(this->env_, sampleRate));
+              result.setProperty(
+                  this->env_, "channels", js::Number::create(this->env_, 2));
+              return result;
+            }) {}
+};
+
+inline js_value_t* createInstance(js_env_t* env, js_callback_info_t* info) try {
+  using namespace qvac_lib_inference_addon_cpp;
+  using namespace std;
+
+  JsArgsParser args(env, info);
+  auto configurationParams = args.getJsObject(1, "configurationParams");
+
+  JSAdapter adapter;
+  auto cfg = adapter.buildAcestepConfig(configurationParams, env);
+
+  auto model = make_unique<AcestepModel>(std::move(cfg));
+  const int sampleRate = 48000;
+
+  out_handl::OutputHandlers<out_handl::JsOutputHandlerInterface> outHandlers;
+  outHandlers.add(make_shared<JsAudioOutputHandler>(sampleRate));
+  unique_ptr<OutputCallBackInterface> callback = make_unique<OutputCallBackJs>(
+      env, args.get(0, "jsHandle"), args.getFunction(2, "outputCallback"),
+      std::move(outHandlers));
+
+  auto addon = make_unique<AddonJs>(env, std::move(callback), std::move(model));
+  return JsInterface::createInstance(env, std::move(addon));
+}
+JSCATCH
+
+inline js_value_t* runJob(js_env_t* env, js_callback_info_t* info) try {
+  using namespace qvac_lib_inference_addon_cpp;
+
+  JsArgsParser args(env, info);
+  AddonJs& instance = JsInterface::getInstance(env, args.get(0, "instance"));
+  auto [type, jsInput] = JsInterface::getInput(args);
+
+  if (type != "text") {
+    throw qvac_errors::StatusError(
+        qvac_errors::general_error::InvalidArgument,
+        "Unknown input type: " + type);
+  }
+
+  // The caption is the primary text input; lyrics/seed/language default from
+  // config (per-call overrides land once the framework job object is threaded
+  // through — see QVAC-21921 plan).
+  AcestepModel::AnyInput modelInput;
+  modelInput.caption = js::String(env, jsInput).as<std::string>(env);
+  return instance.runJob(std::any(std::move(modelInput)));
+}
+JSCATCH
+
+inline js_value_t* activate(js_env_t* env, js_callback_info_t* info) try {
+  using namespace qvac_lib_inference_addon_cpp;
+
+  JsArgsParser args(env, info);
+  AddonJs& instance = JsInterface::getInstance(env, args.get(0, "instance"));
+
+  return js::JsAsyncTask::run(
+      env, [addonCpp = instance.addonCpp]() { addonCpp->activate(); });
+}
+JSCATCH
+
+inline js_value_t* reload(js_env_t* env, js_callback_info_t* info) try {
+  using namespace qvac_lib_inference_addon_cpp;
+  using namespace std;
+
+  JsArgsParser args(env, info);
+  AddonJs& instance = JsInterface::getInstance(env, args.get(0, "instance"));
+  auto configurationParams = args.getJsObject(1, "configurationParams");
+  JSAdapter adapter;
+  auto newCfg = adapter.buildAcestepConfig(configurationParams, env);
+
+  return js::JsAsyncTask::run(
+      env,
+      [addonCpp = instance.addonCpp, newCfg = std::move(newCfg)]() mutable {
+        auto* m = dynamic_cast<AcestepModel*>(&addonCpp->model.get());
+        if (m == nullptr) {
+          throw qvac_errors::StatusError(
+              qvac_errors::general_error::InternalError,
+              "reload: model is not an AcestepModel");
+        }
+        m->setConfig(std::move(newCfg));
+        m->reload();
+      });
+}
+JSCATCH
+
+}  // namespace qvac::audiogenggml::addon_js
