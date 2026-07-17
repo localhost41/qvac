@@ -1,6 +1,6 @@
 {
   "name": "tts-cpp",
-  "version-date": "2026-07-16",
+  "version-date": "2026-07-17",
   "description": "LOCAL OVERLAY of tts-cpp built from a working-tree checkout of qvac-ext-lib-whisper.cpp/tts-cpp (adds the CosyVoice3 engine ahead of the registry pin). Set TTS_CPP_LOCAL_SOURCE to the local tts-cpp dir, or it defaults to ../../../qvac-ext-lib-whisper.cpp/tts-cpp. Do NOT publish; drop this overlay once the CosyVoice3 pin lands in qvac-registry-vcpkg.",
   "homepage": "https://github.com/tetherto/qvac-ext-lib-whisper.cpp/tree/master/tts-cpp",
   "license": "MIT",
