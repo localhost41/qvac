@@ -1,15 +1,15 @@
-// Constructor-validation + scaffold-smoke tests for CosyvoiceModel.
+// Constructor-validation + real-GGUF round-trip tests for CosyvoiceModel.
 //
 // Same shape as test_supertonic_config.cpp: validateConfig is private so we
 // drive it indirectly via the public constructor and assert the throw path.
-//
-// Unlike Supertonic (which needs a real GGUF to load), the iteration-1
-// CosyVoice3 engine is a scaffold that tolerates missing weights and returns
-// placeholder audio — so a valid model directory is enough to exercise the
-// full construct -> load -> process path here.
+// The CosyVoice3 engine requires real weights (LM + flow + HiFT + voice +
+// tokenizer), so load()/synthesize round-trips are gated behind
+// QVAC_TEST_COSYVOICE_MODEL_DIR (a directory assembled by
+// tts-cpp/scripts/assemble-cosyvoice3-model.py); without it, load() must throw.
 
 #include <any>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <stdexcept>
@@ -28,16 +28,24 @@ using qvac_errors::StatusError;
 
 namespace {
 
-std::filesystem::path testModelDir() {
+std::string envOrEmpty(const char* name) {
+  if (const char* v = std::getenv(name)) return v;
+  return "";
+}
+
+// A directory that exists but holds no CosyVoice3 weights: construction (which
+// only validates the directory exists) succeeds, but load() must fail because
+// the engine can't resolve the LM/flow/HiFT/voice/tokenizer components.
+std::filesystem::path emptyModelDir() {
   auto dir = std::filesystem::temp_directory_path() /
              "qvac-tts-ggml-cosyvoice-tests";
   std::filesystem::create_directories(dir);
   return dir;
 }
 
-CosyvoiceConfig minimallyValidStubConfig() {
+CosyvoiceConfig configWithExistingDir() {
   CosyvoiceConfig cfg;
-  cfg.modelDir = testModelDir().string();  // exists; weights may be absent
+  cfg.modelDir = emptyModelDir().string();
   return cfg;
 }
 
@@ -55,19 +63,19 @@ TEST(CosyvoiceValidate, NonexistentModelDirRejected) {
 }
 
 TEST(CosyvoiceValidate, NonexistentReferenceAudioRejected) {
-  auto cfg = minimallyValidStubConfig();
+  auto cfg = configWithExistingDir();
   cfg.referenceAudio = "/definitely/does/not/exist/ref.wav";
   EXPECT_THROW(CosyvoiceModel{cfg}, StatusError);
 }
 
 TEST(CosyvoiceValidate, NegativeCfmStepsRejected) {
-  auto cfg = minimallyValidStubConfig();
+  auto cfg = configWithExistingDir();
   cfg.cfmSteps = -1;
   EXPECT_THROW(CosyvoiceModel{cfg}, StatusError);
 }
 
 TEST(CosyvoiceValidate, UseGpuNGpuLayersConflictRejected) {
-  auto cfg = minimallyValidStubConfig();
+  auto cfg = configWithExistingDir();
   cfg.useGpu = true;
   cfg.nGpuLayers = 0;
   EXPECT_THROW(CosyvoiceModel{cfg}, StatusError);
@@ -82,41 +90,64 @@ TEST(CosyvoiceValidate, ConfigDefaultsAreCpuFriendly) {
   EXPECT_FALSE(cfg.streamChunkTokens.has_value());
 }
 
-TEST(CosyvoiceScaffold, ConstructDefersLoad) {
-  auto cfg = minimallyValidStubConfig();
+TEST(CosyvoiceModelLifecycle, ConstructDefersLoad) {
+  auto cfg = configWithExistingDir();
   CosyvoiceModel m(cfg);
   EXPECT_EQ(m.getName(), "CosyvoiceModel");
   EXPECT_FALSE(m.isLoaded()) << "load is deferred until activate()/load()";
 }
 
-TEST(CosyvoiceScaffold, LoadAndSynthesizePlaceholder) {
-  auto cfg = minimallyValidStubConfig();
+TEST(CosyvoiceModelLifecycle, LoadWithoutWeightsThrows) {
+  // A directory with no CosyVoice3 GGUFs: the engine can't resolve its
+  // components, so the deferred load must raise (not silently succeed).
+  auto cfg = configWithExistingDir();
   CosyvoiceModel m(cfg);
-  EXPECT_NO_THROW(m.load());
+  EXPECT_THROW(m.load(), StatusError);
+  EXPECT_FALSE(m.isLoaded());
+}
+
+TEST(CosyvoiceModelLifecycle, ProcessRejectsWrongAnyInputType) {
+  // The input-type check happens before any engine work, so this needs no
+  // weights: a non-AnyInput payload is rejected up front.
+  auto cfg = configWithExistingDir();
+  CosyvoiceModel m(cfg);
+  EXPECT_THROW(m.process(std::any{int64_t{42}}), StatusError);
+}
+
+// ---- Real-GGUF round-trips (opt-in) -------------------------------------
+// Set QVAC_TEST_COSYVOICE_MODEL_DIR to a directory holding
+// cosyvoice3-{llm,flow,hift}*.gguf + voice.gguf + vocab.json + merges.txt.
+
+TEST(CosyvoiceRealGguf, ConstructLoadSynthesizeUnload) {
+  const auto dir = envOrEmpty("QVAC_TEST_COSYVOICE_MODEL_DIR");
+  if (dir.empty()) GTEST_SKIP() << "Set QVAC_TEST_COSYVOICE_MODEL_DIR to enable.";
+
+  CosyvoiceConfig cfg;
+  cfg.modelDir = dir;
+  CosyvoiceModel m(cfg);
+  EXPECT_FALSE(m.isLoaded());
+  ASSERT_NO_THROW(m.load());
   EXPECT_TRUE(m.isLoaded());
   EXPECT_EQ(m.sampleRate(), 24000);
 
   CosyvoiceModel::AnyInput input;
-  input.text = "Hello world.";
+  input.text = "Hello from a fully on device pipeline.";
   std::any out;
-  EXPECT_NO_THROW(out = m.process(std::any(input)));
+  ASSERT_NO_THROW(out = m.process(std::any(input)));
   const auto* pcm = std::any_cast<std::vector<int16_t>>(&out);
   ASSERT_NE(pcm, nullptr);
-  EXPECT_GT(pcm->size(), 0u) << "placeholder waveform should be non-empty";
+  EXPECT_GT(pcm->size(), 0u);
 
   EXPECT_NO_THROW(m.unload());
   EXPECT_FALSE(m.isLoaded());
 }
 
-TEST(CosyvoiceScaffold, ProcessRejectsWrongAnyInputType) {
-  auto cfg = minimallyValidStubConfig();
-  CosyvoiceModel m(cfg);
-  m.load();
-  EXPECT_THROW(m.process(std::any{int64_t{42}}), StatusError);
-}
+TEST(CosyvoiceRealGguf, StreamingDeliversChunks) {
+  const auto dir = envOrEmpty("QVAC_TEST_COSYVOICE_MODEL_DIR");
+  if (dir.empty()) GTEST_SKIP() << "Set QVAC_TEST_COSYVOICE_MODEL_DIR to enable.";
 
-TEST(CosyvoiceScaffold, StreamingDeliversChunks) {
-  auto cfg = minimallyValidStubConfig();
+  CosyvoiceConfig cfg;
+  cfg.modelDir = dir;
   cfg.streamChunkTokens = 25;       // ~1 s hops
   cfg.streamFirstChunkTokens = 10;  // smaller first chunk
   CosyvoiceModel m(cfg);
@@ -126,7 +157,7 @@ TEST(CosyvoiceScaffold, StreamingDeliversChunks) {
   bool sawLast = false;
   size_t streamedSamples = 0;
   CosyvoiceModel::AnyInput input;
-  input.text = "Streaming placeholder synthesis over several chunks.";
+  input.text = "Streaming synthesis over several chunks.";
   input.chunkCallback = [&](std::vector<int16_t>&& pcm, int idx, bool isLast) {
     EXPECT_EQ(idx, chunks);
     streamedSamples += pcm.size();
@@ -135,7 +166,7 @@ TEST(CosyvoiceScaffold, StreamingDeliversChunks) {
   };
 
   std::any out;
-  EXPECT_NO_THROW(out = m.process(std::any(std::move(input))));
+  ASSERT_NO_THROW(out = m.process(std::any(std::move(input))));
   EXPECT_GT(chunks, 1) << "expected multiple streaming chunks";
   EXPECT_TRUE(sawLast);
 

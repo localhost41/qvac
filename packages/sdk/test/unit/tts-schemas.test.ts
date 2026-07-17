@@ -6,8 +6,10 @@ import {
   ttsConfigSchema,
   ttsChatterboxRuntimeConfigSchema,
   ttsSupertonicRuntimeConfigSchema,
+  ttsCosyvoice3RuntimeConfigSchema,
   TTS_CHATTERBOX_LANGUAGES,
   TTS_SUPERTONIC_LANGUAGES,
+  TTS_COSYVOICE3_LANGUAGES,
   LEGACY_TTS_ONNX_MODEL_CONFIG_FIELDS
 } from '@/schemas/text-to-speech'
 
@@ -188,6 +190,50 @@ test('ttsConfigSchema: accepts GGML supertonic load config', (t) => {
     voice: 'F1'
   })
   t.is(r.success, true)
+})
+
+test('ttsConfigSchema: accepts GGML cosyvoice3 load config', (t) => {
+  const r = ttsConfigSchema.safeParse({
+    ttsEngine: 'cosyvoice3',
+    language: 'en'
+  })
+  t.is(r.success, true)
+})
+
+test('ttsConfigSchema: accepts cosyvoice3 options + sub-model sources', (t) => {
+  const r = ttsConfigSchema.safeParse({
+    ttsEngine: 'cosyvoice3',
+    language: 'en',
+    promptText: 'And so my fellow Americans.',
+    cfmSteps: 10,
+    streamChunkTokens: 25,
+    streamFirstChunkTokens: 10,
+    streamLeftContextTokens: 15,
+    outputSampleRate: 24000,
+    seed: 3,
+    flowModelSrc: 'cosyvoice3-flow.gguf',
+    hiftModelSrc: 'cosyvoice3-hift.gguf',
+    referenceAudioSrc: 'ref.wav'
+  })
+  t.is(r.success, true)
+})
+
+test('ttsConfigSchema: rejects an unsupported cosyvoice3 language', (t) => {
+  const r = ttsConfigSchema.safeParse({
+    ttsEngine: 'cosyvoice3',
+    language: 'xx'
+  })
+  t.is(r.success, false)
+})
+
+test('ttsCosyvoice3RuntimeConfigSchema: accepts every supported cosyvoice3 language', (t) => {
+  for (const language of TTS_COSYVOICE3_LANGUAGES) {
+    const r = ttsCosyvoice3RuntimeConfigSchema.safeParse({
+      ttsEngine: 'cosyvoice3',
+      language
+    })
+    t.is(r.success, true, `cosyvoice3 should accept ${language}`)
+  }
 })
 
 test('TTS_CHATTERBOX_LANGUAGES: exposes all 23 supported languages', (t) => {
