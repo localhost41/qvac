@@ -2,14 +2,14 @@ vcpkg_from_github(
   OUT_SOURCE_PATH SOURCE_PATH
   REPO makaveli10/qvac-ext-lib-llama.cpp
   # QVAC-b9840 MULTIDEVICE BENCHMARK OVERLAY — pinned to the LATEST qvac-fabric PR #176
-  # head (b9840 rebase). makaveli10/qvac-ext-lib-llama.cpp @ 3c7708586 (branch qvac-b9840)
+  # head (b9840 rebase). makaveli10/qvac-ext-lib-llama.cpp @ bd3e7791a (branch qvac-b9840)
   # is the fork the cross-repo PR #176 "Rebase b9840" is opened from: qvac-fabric rebased
   # onto upstream llama.cpp b9840. Benchmarked on S25 + S26 + Pixel 9 (Android only),
   # Qwen3.5-0.8B & Gemma-4-E2B × {Q8_0, Q4_K_M} main, mmproj=Q8, mmproj=both (projector
   # CPU vs GPU) — metrics gathering, no cross-version comparison. SHA512 = GitHub
   # source-tarball hash of this REF.
-  REF 3c7708586e7655b212e5e63172bd18300f818a4b
-  SHA512 22ea93a0cd2b4b5c69f184429c32316b43f3aeba62573a160ff910caadbcc9a0092efbe5353358cc546cbb78343e87774e9b4d45218516d244c6132f1eb1abef
+  REF bd3e7791a7150bb60e06d67abcbfb6710213da4d
+  SHA512 375a5e9dfd364ca96ca41bf414acb8e5d381b70e5d6c78995df9967963ead0ba031acb20534d7c9d3b349686ad4059c8433fe22aa90f9b25f4ad53e87a1bda79
 )
 
 # Upstream CMake options only — passed through to vcpkg_cmake_configure.
