@@ -108,10 +108,13 @@ target_compile_definitions(
 )
 
 # On Linux and Android @qvac/fabric ships the ggml compute backends as separate
-# GGML_BACKEND_DL modules (CPU micro-arch variants, Vulkan) that are dlopen'd at
-# runtime; tell the addon so load() uses the registry API instead of the
-# statically-linked ggml_backend_cpu_init(). On macOS/Windows/iOS the backends
-# are static inside qvac__fabric@0.bare and self-register on load.
+# GGML_BACKEND_DL modules (CPU micro-arch variants, Vulkan) that must be dlopen'd
+# at runtime; tell the addon so load() loads them from backendsDir before
+# querying the backend registry. On macOS/Windows/iOS the backends are static
+# inside qvac__fabric@0.bare and self-register on load, so no dlopen is needed.
+# Either way load() acquires the CPU device via the generic registry API
+# (ggml_backend_dev_by_type); it never calls ggml_backend_cpu_init() directly,
+# which @qvac/fabric does not export from its Windows DLL.
 if((ANDROID OR UNIX) AND NOT APPLE)
   target_compile_definitions(${classification-ggml} PRIVATE GGML_BACKEND_DL)
 endif()
