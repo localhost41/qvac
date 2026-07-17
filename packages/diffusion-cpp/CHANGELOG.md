@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Wan 2.2 model downloader and runnable example. The dense TI2V-5B layout is
+  the default; `--t2v-a14b` downloads the paired low-/high-noise MoE experts.
+- Integrity-pinned Wan 2.2 TI2V-5B and T2V-A14B model entries plus an opt-in
+  Linux/CUDA TI2V-5B AVI smoke test.
+
+### Changed
+
+- Wan 2.2 MoE controls now require `files.highNoiseDiffusionModel` instead of
+  being silently ignored on dense/single-expert model contexts.
+- Video phase statistics now include both A14B high- and low-noise sampler
+  sequences in the denoise window.
+
 ## [0.15.0] - 2026-07-16
 
 This release adds an exhaustive per-phase timing breakdown to image and video

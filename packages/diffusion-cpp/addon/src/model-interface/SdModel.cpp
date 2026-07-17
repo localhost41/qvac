@@ -1,5 +1,6 @@
 #include "SdModel.hpp"
 
+#include <array>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -938,12 +939,34 @@ SdModel::processVideo(const GenerationJob& job, const picojson::value& parsed) {
   qvac_lib_inference_addon_sd::SdVidGenConfig vid{};
   qvac_lib_inference_addon_sd::applySdVidGenHandlers(
       vid, parsed.get<picojson::object>());
+  const auto& paramsObject = parsed.get<picojson::object>();
 
   if (vid.mode != "txt2vid" && vid.mode != "img2vid")
     throw StatusError(
         general_error::InvalidArgument,
         "processVideo: unsupported mode '" + vid.mode +
             "' (expected txt2vid or img2vid)");
+
+  // Keep the direct native entry point consistent with video.js: an A14B MoE
+  // tuning knob without a high-noise expert is always a caller error, not a
+  // silent no-op. Dense Wan 2.2 TI2V-5B and Wan 2.1 use only sample_params.
+  if (config_.highNoiseDiffusionModelPath.empty()) {
+    static constexpr std::array<const char*, 6> kWan22MoeParams = {
+        "high_noise_steps",
+        "high_noise_sampler",
+        "high_noise_scheduler",
+        "high_noise_cfg_scale",
+        "high_noise_flow_shift",
+        "moe_boundary"};
+    for (const char* key : kWan22MoeParams) {
+      if (paramsObject.find(key) != paramsObject.end())
+        throw StatusError(
+            general_error::InvalidArgument,
+            std::string(key) +
+                " requires high_noise_diffusion_model_path (Wan 2.2 "
+                "T2V-A14B MoE)");
+    }
+  }
 
   // -- Mode-vs-inputs invariants --------------------------------------------
   // These checks mirror the JS-layer validation but are duplicated here so
@@ -1109,9 +1132,12 @@ SdModel::processVideo(const GenerationJob& job, const picojson::value& parsed) {
     vidParams.cache.reuse_threshold = vid.cacheThreshold;
 
   // -- Generate -------------------------------------------------------------
-  // The supported single-expert video path samples one full video-latent
-  // tensor. Wan 2.2's two-expert path is intentionally out of scope here.
-  g_progressCtx.expectedDenoiseSequences = 1;
+  // Wan 2.1 / TI2V-5B invoke one sampler. Wan 2.2 A14B invokes the high-
+  // noise expert first and the low-noise expert second, so include both
+  // leading sequences in the denoise timing window. Later VAE tiling
+  // sequences remain excluded by sdProgressCallback().
+  const bool hasHighNoiseExpert = !config_.highNoiseDiffusionModelPath.empty();
+  g_progressCtx.expectedDenoiseSequences = hasHighNoiseExpert ? 2 : 1;
   const auto t0 = std::chrono::steady_clock::now();
 
   // Upstream's master API returns success as a bool and hands back frames /
@@ -1180,11 +1206,10 @@ SdModel::processVideo(const GenerationJob& job, const picojson::value& parsed) {
       std::chrono::duration<double, std::milli>(t1 - t0).count());
   stats_.totalGenerationMs += genMsI;
   stats_.totalWallMs += genMsI;
-  // totalSteps accumulates both experts for Wan 2.2 runs; for Wan 2.1 the
-  // high-noise expert isn't loaded, so highNoiseSteps goes to waste counting
-  // here but isn't actually consumed. Keep it simple and sum both.
+  // A Wan 2.2 A14B run consumes both expert schedules. Single-expert paths
+  // only count the primary schedule.
   stats_.totalSteps += vid.sampleSteps;
-  if (!config_.highNoiseDiffusionModelPath.empty())
+  if (hasHighNoiseExpert)
     stats_.totalSteps += vid.highNoiseSteps;
   stats_.totalGenerations++;
   stats_.totalVideos++;

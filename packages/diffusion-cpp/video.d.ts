@@ -11,9 +11,10 @@ export type VideoMode = 'txt2vid' | 'img2vid'
  * Wan 2.1 uses a single diffusion expert -- set `model` to the only expert
  * and leave `highNoiseDiffusionModel` unset.
  *
- * Wan 2.2 uses a mixture-of-experts layout -- set `model` to the low-noise
- * expert and `highNoiseDiffusionModel` to the high-noise expert. The split
- * is governed at runtime by `moe_boundary`.
+ * Wan 2.2 T2V-A14B uses a mixture-of-experts layout -- set `model` to the
+ * low-noise expert and `highNoiseDiffusionModel` to the high-noise expert.
+ * The split is governed at runtime by `moe_boundary`. Dense Wan 2.2 TI2V-5B
+ * uses only `model`, like Wan 2.1, but requires its matching Wan 2.2 VAE.
  *
  * LTX-2 (LTXAV) uses `model` for the diffusion transformer, `llm` for the
  * Gemma text encoder, `vae` for the video VAE, plus the LTX-only
@@ -124,13 +125,18 @@ export interface VideoGenerationParams {
    */
   flow_shift?: number
 
-  // ── Wan 2.2 high-noise expert knobs (ignored when single expert) ──────
+  // ── Wan 2.2 T2V-A14B high-noise expert knobs ─────────────────────────
+  // All require files.highNoiseDiffusionModel. They are rejected for dense
+  // Wan 2.2 TI2V-5B and Wan 2.1 contexts to avoid silently dropping them.
   high_noise_steps?: number
   high_noise_sampler?: SamplerMethod
   high_noise_scheduler?: ScheduleType
   high_noise_cfg_scale?: number
   high_noise_flow_shift?: number
-  /** Boundary between low- and high-noise trajectories. [0, 1]. */
+  /**
+   * Normalized timestep boundary between low- and high-noise trajectories.
+   * This is not an SNR threshold. [0, 1].
+   */
   moe_boundary?: number
 
   // ── Conditioning inputs ───────────────────────────────────────────────

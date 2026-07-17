@@ -20,6 +20,14 @@ const COMPANION_FILE_KEYS = [
 ]
 
 const VIDEO_MODES = new Set(['txt2vid', 'img2vid'])
+const WAN22_MOE_PARAMS = [
+  'high_noise_steps',
+  'high_noise_sampler',
+  'high_noise_scheduler',
+  'high_noise_cfg_scale',
+  'high_noise_flow_shift',
+  'moe_boundary'
+]
 
 function assertAbsolute(key, value) {
   if (typeof value !== 'string' || value.length === 0) {
@@ -336,7 +344,7 @@ class VideoStableDiffusion {
    * @param {string} [params.high_noise_scheduler]      - Wan 2.2 only.
    * @param {number} [params.high_noise_cfg_scale]      - Wan 2.2 only.
    * @param {number} [params.high_noise_flow_shift]     - Wan 2.2 only.
-   * @param {number} [params.moe_boundary]              - Wan 2.2 MoE split point [0,1].
+   * @param {number} [params.moe_boundary]              - Wan 2.2 A14B normalized-timestep MoE split point [0,1], not an SNR threshold.
    * @param {number} [params.strength]                  - img2vid denoise strength.
    * @param {number} [params.vace_strength]             - VACE control-frame guidance.
    * @param {Uint8Array}   [params.init_image]          - First frame (PNG/JPEG). Required for img2vid.
@@ -532,32 +540,17 @@ class VideoStableDiffusion {
       )
     }
 
-    // ── Wan 2.2 sanity check ─────────────────────────────────────────────
-    // Phase timings currently track the supported single-expert sampler path.
-    // A Wan 2.2 job uses separate high- and low-noise sampler invocations, so
-    // its phase fields cannot yet report the combined denoise duration/rate.
+    // ── Wan 2.2 MoE sanity check ─────────────────────────────────────────
+    // The high-noise controls are meaningful only when the second expert was
+    // loaded. Rejecting them for dense/single-expert models prevents a
+    // misspelled or misplaced setting from being silently ignored.
     const hasHighNoiseExpert = !!this._files.highNoiseDiffusionModel
-    if (hasHighNoiseExpert) {
-      this.logger.warn(
-        'Wan 2.2 phase timing stats currently cover only single-expert generation; ' +
-          'the high- and low-noise sampling stages are not yet measured together.'
-      )
-    } else {
-      // Friendly warning when high-noise-only params are set without a
-      // high-noise expert configured on the context.
-      const highNoiseParams = [
-        'high_noise_steps',
-        'high_noise_sampler',
-        'high_noise_scheduler',
-        'high_noise_cfg_scale',
-        'high_noise_flow_shift',
-        'moe_boundary'
-      ]
-      const used = highNoiseParams.filter((k) => params[k] != null)
+    if (!hasHighNoiseExpert) {
+      const used = WAN22_MOE_PARAMS.filter((k) => params[k] != null)
       if (used.length > 0) {
-        this.logger.warn(
-          `${used.join(', ')} supplied but files.highNoiseDiffusionModel ` +
-            'is not set — these params are Wan 2.2-only and will be ignored.'
+        throw new Error(
+          `${used.join(', ')} requires files.highNoiseDiffusionModel. ` +
+            'These parameters are only supported by Wan 2.2 T2V-A14B MoE models.'
         )
       }
     }

@@ -45,7 +45,8 @@ The package exposes three JS entry points:
 | SD3 | image | Supports split CLIP-L / CLIP-G / T5-XXL inputs |
 | FLUX.2 [klein] | image, img2img, multi-reference fusion | Split diffusion + Qwen3 LLM + VAE |
 | Wan 2.1 | text-to-video, image-to-video | Single diffusion expert; I2V requires CLIP vision |
-| Wan 2.2 | video | API/native MoE plumbing for low-noise + high-noise expert layouts; no bundled example/download script yet |
+| Wan 2.2 TI2V-5B | text-to-video, image-to-video | Dense single-model layout with Wan 2.2 VAE; use `scripts/download-model-wan2.2.sh` |
+| Wan 2.2 T2V-A14B | text-to-video | Two-expert MoE layout; pass low-noise `model` plus `highNoiseDiffusionModel` |
 | LTX-2 / LTXAV | text-to-video + audio | Gemma text encoder, video VAE, audio VAE, embedding connectors |
 | ESRGAN | upscale | Standalone or post-generation image upscale |
 
@@ -396,7 +397,7 @@ The default export from `@qvac/diffusion-cpp/video` and the named
 | `fps` | AVI framerate metadata, default 16 for Wan examples and 24 for LTX |
 | `steps`, `cfg_scale`, `sampling_method`, `scheduler`, `seed` | Sampling controls |
 | `flow_shift` | Per-job flow-shift override; Wan 2.1 T2V 1.3B works well at `3.0` |
-| `high_noise_steps`, `high_noise_sampler`, `high_noise_scheduler`, `high_noise_cfg_scale`, `high_noise_flow_shift`, `moe_boundary` | Wan 2.2 high-noise expert controls |
+| `high_noise_steps`, `high_noise_sampler`, `high_noise_scheduler`, `high_noise_cfg_scale`, `high_noise_flow_shift`, `moe_boundary` | Wan 2.2 T2V-A14B MoE controls; require `files.highNoiseDiffusionModel` |
 | `init_image` | First frame for `img2vid`; required by that mode |
 | `control_frames`, `vace_strength` | Optional VACE guidance |
 | `temporal_tiling` | LTX-only temporal VAE tiling to reduce peak VRAM |
@@ -405,6 +406,26 @@ The default export from `@qvac/diffusion-cpp/video` and the named
 Video output is a single MJPG AVI `Uint8Array`. For LTX-2 models loaded with
 `audioVae`, the AVI also contains a second IEEE-float PCM stream at 48 kHz.
 VLC handles these files well.
+
+### Wan 2.2
+
+Download a complete supported model layout before running the example:
+
+```sh
+# Dense TI2V-5B (default)
+./scripts/download-model-wan2.2.sh
+
+# Two-expert T2V-A14B MoE
+./scripts/download-model-wan2.2.sh --t2v-a14b
+npm run generate:wan22
+```
+
+Set `WAN22_VARIANT=t2v-a14b` to run the A14B example. Its
+`moe_boundary` is the backend's normalized timestep boundary; it is not an
+SNR threshold. The backend currently runs one process on one device (with
+optional CPU offload), so tensor/sequence/pipeline/context parallelism and a
+runtime FP8 toggle are unavailable. The downloader may select published FP8
+weight files for A14B with `--fp8` when the installed backend supports them.
 
 ## LTX-2 Text-to-Video With Audio
 

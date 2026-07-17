@@ -89,6 +89,38 @@
       "bytes": 11341184384,
       "group": "base"
     },
+    "wan2.2_ti2v_5B_fp16.safetensors": {
+      "urls": [
+        "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/fb1388adc906ab39ffc26ee40e96b22886b56bc4/split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors"
+      ],
+      "sha256": "456f901338bd9eadbded3828b819109a9b68e8a525ca5cf8d0049a69fcfeca1e",
+      "bytes": 9999658848,
+      "group": "wan22"
+    },
+    "wan2.2_vae.safetensors": {
+      "urls": [
+        "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/fb1388adc906ab39ffc26ee40e96b22886b56bc4/split_files/vae/wan2.2_vae.safetensors"
+      ],
+      "sha256": "e40321bd36b9709991dae2530eb4ac303dd168276980d3e9bc4b6e2b75fed156",
+      "bytes": 1409400960,
+      "group": "wan22"
+    },
+    "wan2.2_t2v_low_noise_14B_fp16.safetensors": {
+      "urls": [
+        "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/fb1388adc906ab39ffc26ee40e96b22886b56bc4/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp16.safetensors"
+      ],
+      "sha256": "431d1613ffa809ae1f735b661a01788c6d74991f51efd01f45d5aee955ccd224",
+      "bytes": 28577095592,
+      "group": "wan22"
+    },
+    "wan2.2_t2v_high_noise_14B_fp16.safetensors": {
+      "urls": [
+        "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/fb1388adc906ab39ffc26ee40e96b22886b56bc4/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp16.safetensors"
+      ],
+      "sha256": "c793e1515320fc8883ac8f97e2a45270c35edd8c4e334a6d42d3e95455bd8da2",
+      "bytes": 28577095592,
+      "group": "wan22"
+    },
     "wan_2.1_vae.safetensors": {
       "urls": [
         "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/06e001fc51048fb03433a6fb25334de7836704a5/split_files/vae/wan_2.1_vae.safetensors"
