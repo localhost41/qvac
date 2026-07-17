@@ -428,7 +428,7 @@ jobs:
       # (Adreno/OpenCL), S26 Ultra (Adreno/OpenCL), Pixel 9 (Mali/Vulkan). CSV replaces
       # the default dual-flagship; each entry is matched CONTAINS against the Device Farm
       # MODEL, one Device Farm run per device (only 3 devices in flight at a time).
-      android_flagship_models: 'S25 Ultra,Pixel 9,Galaxy S26'
+      android_flagship_models: 'S25 Ultra'
       # Select ONLY our test via the shard override (no edits to the committed
       # test-groups.json / perf-tests.json). qvac_perf_only=false so the override isn't
       # intersected with perf-tests.json (which we don't touch).
