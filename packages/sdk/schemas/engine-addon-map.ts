@@ -46,9 +46,11 @@ const LEGACY_ENGINE_TO_CANONICAL: Record<string, ModelRegistryEngine> = {
   [ADDON_NMT]: ModelType.nmtcppTranslation,
   [ADDON_TTS]: ModelType.ttsGgml,
   [ADDON_OCR]: ModelType.ggmlOcr,
-  // Pre-GGML package / tag names from the ONNX era — resolve to the GGML engine.
-  '@qvac/ocr-onnx': ModelType.ggmlOcr,
-  'onnx-ocr': ModelType.ggmlOcr,
+  // "@qvac/ocr-onnx" / "onnx-ocr" registry entries are deliberately NOT
+  // mapped to the GGML engine: unlike TTS, the ONNX OCR artifacts are not
+  // loadable by ggml-ocr (GGUF-only), so advertising them under it steers
+  // integrators into unloadable configs (QVAC-22514). Unmapped entries are
+  // skipped by discovery and model codegen.
   [ADDON_PARAKEET]: ModelType.parakeetTranscription,
   '@qvac/translation-llamacpp': ModelType.nmtcppTranslation,
   '@qvac/vad-silero': 'onnx-vad',

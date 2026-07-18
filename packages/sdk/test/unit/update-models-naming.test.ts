@@ -821,9 +821,9 @@ test('ocr: recognizer english — full field mapping', (t) => {
   const coreKey = Buffer.from('99'.repeat(32), 'hex')
 
   const { model, exportName } = processAndName({
-    path: 'qvac_models_compiled/ocr/2025-04-25/recognizer_english.onnx',
+    path: 'qvac_models_compiled/ocr/2025-04-25/recognizer_english.gguf',
     source: 's3',
-    engine: '@qvac/ocr-onnx',
+    engine: '@qvac/ocr-ggml',
     license: 'Apache-2.0',
     name: '',
     sizeBytes: 25000000,
@@ -841,9 +841,9 @@ test('ocr: recognizer english — full field mapping', (t) => {
     }
   })
 
-  t.is(model.engine, 'ggml-ocr', 'legacy @qvac/ocr-onnx resolved to ggml-ocr')
+  t.is(model.engine, 'ggml-ocr', '@qvac/ocr-ggml resolved to ggml-ocr')
   t.is(model.addon, 'ocr')
-  t.is(model.modelId, 'recognizer_english.onnx')
+  t.is(model.modelId, 'recognizer_english.gguf')
   t.is(model.sha256Checksum, '99999999223344559999999922334455999999992233445599999999aabbccdd')
   t.is(model.blobCoreKey, '99'.repeat(32))
   t.is(model.expectedSize, 25000000)
@@ -859,9 +859,9 @@ test('ocr: detector craft — full field mapping', (t) => {
   const coreKey = Buffer.from('a1'.repeat(32), 'hex')
 
   const { model, exportName } = processAndName({
-    path: 'qvac_models_compiled/ocr/2025-04-25/detector_craft.onnx',
+    path: 'qvac_models_compiled/ocr/2025-04-25/detector_craft.gguf',
     source: 's3',
-    engine: '@qvac/ocr-onnx',
+    engine: '@qvac/ocr-ggml',
     license: 'Apache-2.0',
     name: '',
     sizeBytes: 45000000,
@@ -880,9 +880,44 @@ test('ocr: detector craft — full field mapping', (t) => {
   })
 
   t.is(model.addon, 'ocr')
-  t.is(model.modelId, 'detector_craft.onnx')
+  t.is(model.modelId, 'detector_craft.gguf')
 
   t.is(exportName, 'OCR_CRAFT_ENGLISH_DETECTOR')
+})
+
+// ---------------------------------------------------------------------------
+// OCR: legacy ONNX-era engines are skipped (QVAC-22514)
+// ---------------------------------------------------------------------------
+//
+// Unlike TTS, the ONNX OCR artifacts are not loadable by the GGML engine, so
+// "@qvac/ocr-onnx" / "onnx-ocr" entries must not be advertised as ggml-ocr.
+
+test('ocr: legacy onnx engines are not resolved — entries skipped', (t) => {
+  const coreKey = Buffer.from('77'.repeat(32), 'hex')
+
+  for (const engine of ['@qvac/ocr-onnx', 'onnx-ocr']) {
+    const model = processRegistryModel({
+      path: 'qvac_models_compiled/ocr/2026-02-12/rec_512/recognizer_latin.onnx',
+      source: 's3',
+      engine,
+      license: 'Apache-2.0',
+      name: '',
+      sizeBytes: 15411868,
+      sha256: '77777777223344557777777722334455777777772233445577777777aabbccdd',
+      quantization: '',
+      params: '',
+      tags: ['ocr', 'recognizer'],
+      blobBinding: {
+        coreKey,
+        blockOffset: 1,
+        blockLength: 1,
+        byteOffset: 1,
+        byteLength: 15411868
+      }
+    } as any)
+
+    t.is(model, null, `${engine} entry is skipped, not mapped to ggml-ocr`)
+  }
 })
 
 // ---------------------------------------------------------------------------
