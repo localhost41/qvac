@@ -20,6 +20,19 @@ Use the following sequence of function calls:
 
 For how to use each function, see [SDK — API reference](/reference/api/).
 
+## Audio output
+
+The SDK returns raw, mono, signed 16-bit PCM samples as a plain `number[]`. The `buffer` promise resolves to the complete sample array, while `bufferStream` yields individual samples as they become available. The data has no WAV header or other container metadata; use the [example utility](#utils) to write it as a WAV file.
+
+The response does not include a sample rate. Use the rate implied by the loaded engine and its configuration:
+
+| Configuration           | Output sample rate                                                                                  |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| Chatterbox              | 24,000 Hz                                                                                           |
+| Supertonic              | 44,100 Hz, or `modelConfig.outputSampleRate` when set                                               |
+| Parler                  | 44,100 Hz, or `modelConfig.outputSampleRate` for non-streaming output; streaming requires 44,100 Hz |
+| LavaSR enhancer enabled | 48,000 Hz by default; Supertonic can override it with `modelConfig.outputSampleRate`                |
+
 ## Models
 
 ### Chatterbox
