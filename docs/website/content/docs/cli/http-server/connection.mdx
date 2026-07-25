@@ -11,6 +11,8 @@ For OpenCode, use the published [`@qvac/opencode-plugin`](https://www.npmjs.com/
 
 For OpenClaw, use the published [`@qvac/openclaw-plugin`](https://www.npmjs.com/package/@qvac/openclaw-plugin). The plugin registers the `qvac` provider, exposes the QVAC model catalog, and uses OpenClaw's `localService` support to start `qvac serve openai` when the local provider is used.
 
+For Hermes Agent, the community-maintained [Hermes + QVAC Quickstart](https://github.com/localhost41/hermes-qvac-quickstart) installs a standalone `qvac` provider and manages the same OpenAI-compatible QVAC server path. It reuses the official QVAC CLI, AI SDK provider, and model catalog, but is an independent community project rather than an official QVAC package.
+
 Manual HTTP-server setup is still available for other OpenAI-compatible tools, or for users who want to run `qvac serve openai` themselves. In that mode, the model name requested by the tool must match an alias declared in `serve.models`, and the tool's base URL must point to the running server (`http://localhost:11434/v1` by default).
 
 ## OpenCode quickstart
@@ -178,6 +180,25 @@ For example:
 
 Start `qvac serve openai` with that config, register an OpenClaw custom provider whose model id is `gemma4-2b`, and select `qvac/gemma4-2b` in OpenClaw. The raw SDK constant belongs in `qvac.config.json`; the OpenClaw-facing model name should use the alias.
 
+## Hermes Agent community quickstart
+
+If Hermes Agent is already installed and available as `hermes`, install the community quickstart and start the integration:
+
+```bash
+npm install -g @localhost41/hermes-qvac-provider@beta
+hermes-qvac start
+```
+
+The command checks local resources, asks before downloading models, installs the standalone Hermes provider, starts a managed `qvac serve openai` instance, waits for the selected models, launches Hermes, and cleans up its managed session when Hermes exits. The npm package includes the official QVAC CLI, so this path does not require a separate global `qvac` installation.
+
+The default profile uses Qwen3.5 9B for normal Hermes agent workflows. On smaller machines, an explicitly reduced fast profile uses Qwen3.5 4B, a 16K context, and Hermes' terminal toolset:
+
+```bash
+hermes-qvac start --fast
+```
+
+See the [Hermes + QVAC Quickstart README](https://github.com/localhost41/hermes-qvac-quickstart#readme) for requirements, model-download estimates, diagnostics, uninstall instructions, compatibility evidence, and current limitations. This integration is maintained independently and is not affiliated with or endorsed by QVAC or Hermes Agent.
+
 ## Compatible tools
 
 The following tools have been verified to work as drop-in replacements by pointing their base URL to the HTTP server:
@@ -193,6 +214,7 @@ The following tools have been verified to work as drop-in replacements by pointi
 | [Aider](https://aider.chat) | `/v1/chat/completions` (streaming) |
 | [OpenCode](https://opencode.ai) | `/v1/chat/completions` (streaming, tool calls) |
 | [OpenClaw](https://openclaw.ai) | `/v1/chat/completions` (streaming, tool calls), `/v1/models` |
+| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | `/v1/chat/completions` (streaming, tool calls), `/v1/models` |
 
 ## Configure the HTTP server
 
