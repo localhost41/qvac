@@ -13,7 +13,7 @@ export interface CheckResult {
 }
 
 export interface CheckSection {
-  id: 'runtime' | 'hardware' | 'targets' | 'tools' | 'project'
+  id: 'runtime' | 'hardware' | 'targets' | 'tools' | 'project' | 'deep'
   title: string
   checks: CheckResult[]
 }
@@ -28,6 +28,7 @@ export interface DoctorReport {
 
 export interface RunDoctorOptions {
   projectRoot?: string | undefined
+  deep?: boolean | undefined
   json?: boolean | undefined
   quiet?: boolean | undefined
   verbose?: boolean | undefined
