@@ -17,11 +17,7 @@ import {
   WorkerShutdownError
 } from '@/utils/errors-client'
 import type { RuntimeContext } from '@qvac/inference/surface'
-import {
-  createRPCInitTimeoutCause,
-  createWorkerStartupError,
-  type WorkerExit
-} from './worker-startup-error'
+import { createRPCInitTimeoutCause, type WorkerExit } from './worker-startup-error'
 
 const RPC_INIT_TIMEOUT_MS = 30_000
 const WORKER_STDERR_TAIL_CHARS = 16_384
@@ -454,10 +450,7 @@ async function ensureRPC(): Promise<RPC> {
           reject(
             new RPCInitTimeoutError(
               RPC_INIT_TIMEOUT_MS,
-              createWorkerStartupError(
-                `Worker process exited with code ${code}, signal ${exitSignal} before IPC connection was established`,
-                workerStderrTail
-              )
+              createRPCInitTimeoutCause(workerStderrTail, { code, signal: exitSignal })
             )
           )
         })
