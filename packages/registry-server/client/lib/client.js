@@ -15,6 +15,8 @@ const fs = require('#fs')
 
 const DEFAULT_DOWNLOAD_MAX_RETRIES = 3
 const RETRIABLE_DOWNLOAD_CODES = ['REQUEST_TIMEOUT']
+const INFLIGHT_DRAIN_TIMEOUT_MS = 5000
+const INFLIGHT_DRAIN_POLL_MS = 10
 
 // While the app is backgrounded the swarm is suspended; a retry must wait for
 // resume rather than burn its (small) retry budget timing out against a dead
@@ -497,7 +499,7 @@ class QVACRegistryClient extends ReadyResource {
     }
   }
 
-  _releaseOnStreamEnd (stream, core, blobs, rangeDownload, blockStart, blockEnd) {
+  _releaseOnStreamEnd(stream, core, blobs, rangeDownload, blockStart, blockEnd) {
     let released = false
 
     // 'close' also covers a destroyed or errored stream; on 'end' alone a
@@ -505,28 +507,34 @@ class QVACRegistryClient extends ReadyResource {
     const release = () => {
       if (released) return
       released = true
-      return this._releaseDownload(core, blobs, rangeDownload, blockStart, blockEnd)
-        .catch(e => this.logger.warn('Error releasing blob resources', { error: e.message }))
+      return this._releaseDownload(core, blobs, rangeDownload, blockStart, blockEnd).catch((e) =>
+        this.logger.warn('Error releasing blob resources', { error: e.message })
+      )
     }
 
     stream.once('end', release)
     stream.once('close', release)
   }
 
-  async _releaseDownload (core, blobs, rangeDownload, blockStart, blockEnd) {
-    // Stop replication before clearing to prevent blocks from being refetched.
+  async _releaseDownload(core, blobs, rangeDownload, blockStart, blockEnd) {
+    // Hypercore can commit in-flight responses after a range is destroyed.
     if (rangeDownload) rangeDownload.destroy()
 
-    if (core && blockStart != null) {
+    if (core && blockStart !== undefined) {
+      if (rangeDownload) await this._waitForInflightBlocks(core)
       await this._clearBlobBlocks(core, blockStart, blockEnd)
     }
     if (blobs) {
-      try { await blobs.close() } catch (e) {
+      try {
+        await blobs.close()
+      } catch (e) {
         this.logger.warn('Error closing blob instance', { error: e.message })
       }
     }
     if (core) {
-      try { await core.close() } catch (e) {
+      try {
+        await core.close()
+      } catch (e) {
         this.logger.warn('Error closing blob core', { error: e.message })
       }
     }
@@ -534,7 +542,29 @@ class QVACRegistryClient extends ReadyResource {
     this.logger.debug('Blob resources released')
   }
 
-  async _clearBlobBlocks (core, start, end) {
+  async _waitForInflightBlocks(core) {
+    if (!Array.isArray(core.peers)) return
+
+    const timeoutMs = this._inflightDrainTimeoutMs ?? INFLIGHT_DRAIN_TIMEOUT_MS
+    const pollMs = this._inflightDrainPollMs ?? INFLIGHT_DRAIN_POLL_MS
+    const deadline = Date.now() + timeoutMs
+    while (core.peers.some((peer) => peer.inflight > 0 || peer.dataProcessing > 0)) {
+      if (Date.now() >= deadline) {
+        this.logger.warn('Timed out waiting for in-flight blob blocks before clearing', {
+          timeoutMs,
+          peers: core.peers.map((peer, index) => ({
+            peer: index,
+            inflight: peer.inflight,
+            dataProcessing: peer.dataProcessing
+          }))
+        })
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollMs))
+    }
+  }
+
+  async _clearBlobBlocks(core, start, end) {
     try {
       const cleared = await core.clear(start, end, { diff: true })
       await core.compact()
