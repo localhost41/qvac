@@ -696,6 +696,46 @@ describe('deep SDK runtime probe', () => {
     }
   })
 
+  it('rejects a success message when the probe exits unsuccessfully', async () => {
+    const fixture = createSdkFixture(`
+      export async function heartbeat() {
+        process.send?.({ kind: '${DEEP_PROBE_MESSAGE_KIND}', version: ${DEEP_PROBE_PROTOCOL_VERSION}, ok: true, phase: 'heartbeat' })
+        process.exit(1)
+      }
+      export async function close() {}
+    `)
+    try {
+      const result = await probeSdkRuntime(fixture.entrypoint, fixture.projectRoot, {
+        timeoutMs: 2_000
+      })
+      assert.equal(result.outcome, 'protocol-error')
+      assert.match(result.error ?? '', /did not agree/i)
+    } finally {
+      fs.rmSync(fixture.projectRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects duplicate protocol result messages', async () => {
+    const fixture = createSdkFixture(`
+      export async function heartbeat() {
+        const result = { kind: '${DEEP_PROBE_MESSAGE_KIND}', version: ${DEEP_PROBE_PROTOCOL_VERSION}, ok: true, phase: 'heartbeat' }
+        process.send?.(result)
+        process.send?.(result)
+        process.exit(0)
+      }
+      export async function close() {}
+    `)
+    try {
+      const result = await probeSdkRuntime(fixture.entrypoint, fixture.projectRoot, {
+        timeoutMs: 2_000
+      })
+      assert.equal(result.outcome, 'protocol-error')
+      assert.match(result.error ?? '', /duplicate/i)
+    } finally {
+      fs.rmSync(fixture.projectRoot, { recursive: true, force: true })
+    }
+  })
+
   it('reports close failures separately from heartbeat failures', async () => {
     const fixture = createSdkFixture(`
       export async function heartbeat() {}

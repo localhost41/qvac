@@ -67,6 +67,9 @@ function signalProbeTree(child: ReturnType<typeof fork>, signal: NodeJS.Signals)
       windowsHide: true
     })
     killer.once('error', () => child.kill(signal))
+    killer.once('close', (exitCode) => {
+      if (exitCode !== 0) child.kill(signal)
+    })
     return
   }
 
@@ -137,7 +140,11 @@ export function probeSdkRuntime(
     child.once('close', (exitCode, signal) => {
       clearTimeout(timeoutTimer)
       if (terminationTimer !== undefined) clearTimeout(terminationTimer)
-      if (timedOut && process.platform !== 'win32') signalProbeTree(child, 'SIGKILL')
+      // A failed probe may have spawned descendants even when it did not time
+      // out. Reap the process group so failed checks cannot leak workers.
+      if (timedOut || exitCode !== 0 || signal !== null) {
+        signalProbeTree(child, process.platform === 'win32' ? 'SIGTERM' : 'SIGKILL')
+      }
 
       let outcome: SdkRuntimeProbeResult['outcome']
       let error = spawnError

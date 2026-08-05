@@ -82,9 +82,10 @@ a private structured channel, while stdout and stderr are captured separately
 and bounded. A valid success result and exit code `0` are both required.
 
 The outer probe timeout is 45 seconds, and SDK cleanup is bounded separately to
-two seconds. On timeout, the CLI requests graceful termination of the probe
-process tree and then forces termination after a two-second grace period. The
-report prioritizes concrete CPU, native-library, Visual C++ runtime, Vulkan,
+two seconds. On Unix, a timeout requests graceful termination of the probe
+process tree and then forces termination after a two-second grace period. On
+Windows, the CLI terminates the entire tree with `taskkill /T /F`; failed probes
+are also cleaned up before the result is returned. The report prioritizes concrete CPU, native-library, Visual C++ runtime, Vulkan,
 and Bare errors over a generic RPC-handshake timeout. These classifications are
 diagnostic guidance; native loader messages that lack structured SDK error
 codes are necessarily matched heuristically.
