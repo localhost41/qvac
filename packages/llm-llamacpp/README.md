@@ -152,7 +152,8 @@ The `config` obj consists of a set of hyper-parameters which can be used to twea
 const config = {
   gpu_layers: '99', // number of model layers offloaded to GPU.
   ctx_size: '1024', // context length
-  device: 'cpu' // must be specified: 'gpu' or 'cpu' else it will throw an error
+  device: 'cpu', // must be specified: 'gpu' or 'cpu' else it will throw an error
+  no_mmap: 'true' // disable memory-mapped model loading
 }
 ```
 
@@ -167,7 +168,7 @@ const config = {
 | top_k             | 0 – 128                                     | 40                           | Top-k sampling                                        |
 | predict         | integer (-1 = infinity)                     | -1                           | Maximum tokens to predict                             |
 | seed              | integer                                     | -1 (random)                  | Random seed for sampling                              |
-| no_mmap           | "" (passing empty string sets the flag)     | —                            | Disable memory mapping for model loading              |
+| no_mmap           | `""`, `"true"`, or `"false"`                | `"false"`                    | Disable memory mapping for model loading              |
 | reverse_prompt    | string (comma-separated)                    | —                            | Stop generation when these strings are encountered    |
 | repeat_penalty    | float                                       | 1.1                          | Repetition penalty                                    |
 | presence_penalty  | float                                       | 0                            | Presence penalty for sampling                         |
@@ -406,13 +407,14 @@ npm run quickstart
 
 ## OCR with Vision-Language Models
 
-In addition to ONNX-based OCR (`@qvac/ocr-onnx`), you can use vision-language models through `@qvac/llm-llamacpp` for OCR tasks. This is useful for structured document understanding (tables, forms, multi-column layouts) where traditional OCR pipelines struggle.
+In addition to pipeline-based OCR (`@qvac/ocr-ggml`), you can use vision-language models through `@qvac/llm-llamacpp` for OCR tasks. This is useful for structured document understanding (tables, forms, multi-column layouts) where traditional OCR pipelines struggle.
 
 ### Supported OCR Models
 
 | Model | Params | Quantization | Description |
 |-------|--------|-------------|-------------|
 | LightON OCR-2 1B | 0.6B (LLM) + ~550M (vision) | Q4_K_M | OCR-specialized, full-page transcription, 11 languages |
+| Unlimited-OCR | 3B (DeepseekV2 MoE) + SAM+CLIP vision | Q4_K_M | OCR-specialized, full-page document parsing with layout boxes + HTML tables |
 | SmolVLM2-500M | 500M | Q8_0 | General vision-language, can follow targeted extraction prompts |
 
 ### LightON OCR-2
@@ -461,6 +463,64 @@ const imageBytes = new Uint8Array(fs.readFileSync('./document.png'))
 const messages = [
   { role: 'user', type: 'media', content: imageBytes },
   { role: 'user', content: 'Extract all text from this image and format it as markdown.' }
+]
+
+const response = await model.run(messages)
+const output = []
+
+response.onUpdate(token => {
+  output.push(token)
+})
+
+await response.await()
+
+console.log(output.join(''))
+
+await model.unload()
+```
+
+### Unlimited-OCR
+
+[Unlimited-OCR](https://huggingface.co/baidu/Unlimited-OCR) is a 3B OCR-specialized vision-language model (Apache 2.0), an advancement of DeepSeek-OCR. It parses full-page documents into text with layout regions (`<|det|>` boxes) and reconstructs tables as HTML — useful for invoices, forms, and scanned reports.
+
+**Characteristics:**
+- DeepEncoder vision tower (SAM ViT-B + CLIP-L) + DeepseekV2 MoE decoder
+- Emits `<|det|>type [x0,y0,x1,y1]<|/det|>` layout regions and `<table>…</table>` structure
+- Requires both the LLM model and the **F16** mmproj (keep the vision projector at F16 — quantizing it hurts OCR accuracy)
+- Requires `qvac-fabric >= 9840` (ships the `deepseek2-ocr` engine + `deepseekocr` clip projector)
+- **Prompt matters:** use `document parsing.` (layout + tables), `Multi page parsing.` (long docs), or `Free OCR. ` (plain text). A generic "extract the text" prompt yields near-empty output.
+
+**Usage Example:**
+
+```js
+const LlmLlamacpp = require('@qvac/llm-llamacpp')
+const fs = require('bare-fs')
+const path = require('bare-path')
+
+const dirPath = path.resolve('./models')
+
+const model = new LlmLlamacpp({
+  files: {
+    model: [path.join(dirPath, 'unlimited-ocr-Q4_K_M.gguf')],
+    projectionModel: path.join(dirPath, 'mmproj-unlimited-ocr-F16.gguf')
+  },
+  config: {
+    device: 'cpu',
+    gpu_layers: '0',
+    ctx_size: '8192',
+    temp: '0',
+    predict: '2048'
+  },
+  logger: console
+})
+
+await model.load()
+
+const imageBytes = new Uint8Array(fs.readFileSync('./document.png'))
+
+const messages = [
+  { role: 'user', type: 'media', content: imageBytes },
+  { role: 'user', content: 'document parsing.' }
 ]
 
 const response = await model.run(messages)
