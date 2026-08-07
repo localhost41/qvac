@@ -7,6 +7,7 @@ export interface CheckResult {
   label: string
   status: CheckStatus
   severity: CheckSeverity
+  code?: string
   value?: string
   detail?: string
   hint?: string

@@ -34,6 +34,29 @@ export interface SdkRuntimeProbeOptions {
   childModulePath?: string | undefined
 }
 
+export type SdkRuntimeFailureId =
+  | 'cpu-instruction'
+  | 'libstdcxx'
+  | 'visual-cpp-runtime'
+  | 'vulkan'
+  | 'shared-library'
+  | 'bare-runtime'
+  | 'worker-handshake-timeout'
+  | 'spawn-error'
+  | 'protocol-error'
+  | 'import-failed'
+  | 'cleanup-failed'
+  | 'heartbeat-failed'
+
+export interface SdkRuntimeFailureClassification {
+  id: SdkRuntimeFailureId
+  hint: string
+}
+
+interface FailureRule extends SdkRuntimeFailureClassification {
+  matches: (result: SdkRuntimeProbeResult, diagnostics: string) => boolean
+}
+
 function appendBounded(current: string, chunk: string, limit: number): string {
   const next = current + chunk
   return next.length <= limit ? next : next.slice(next.length - limit)
@@ -62,13 +85,16 @@ function signalProbeTree(child: ReturnType<typeof fork>, signal: NodeJS.Signals)
   if (pid === undefined) return
 
   if (process.platform === 'win32') {
+    const killChildIfRunning = (): void => {
+      if (child.exitCode === null && child.signalCode === null) child.kill(signal)
+    }
     const killer = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {
       stdio: 'ignore',
       windowsHide: true
     })
-    killer.once('error', () => child.kill(signal))
+    killer.once('error', killChildIfRunning)
     killer.once('close', (exitCode) => {
-      if (exitCode !== 0) child.kill(signal)
+      if (exitCode !== 0) killChildIfRunning()
     })
     return
   }
@@ -140,10 +166,12 @@ export function probeSdkRuntime(
     child.once('close', (exitCode, signal) => {
       clearTimeout(timeoutTimer)
       if (terminationTimer !== undefined) clearTimeout(terminationTimer)
-      // A failed probe may have spawned descendants even when it did not time
-      // out. Reap the process group so failed checks cannot leak workers.
-      if (timedOut || exitCode !== 0 || signal !== null) {
-        signalProbeTree(child, process.platform === 'win32' ? 'SIGTERM' : 'SIGKILL')
+      // A failed Unix probe may have spawned descendants even when it did not
+      // time out. Its process group remains addressable after the leader exits.
+      // Windows has no equivalent group handle here, and reusing the exited
+      // leader's PID with taskkill could target an unrelated process tree.
+      if (process.platform !== 'win32' && (timedOut || exitCode !== 0 || signal !== null)) {
+        signalProbeTree(child, 'SIGKILL')
       }
 
       let outcome: SdkRuntimeProbeResult['outcome']
@@ -212,58 +240,101 @@ function diagnosticText(result: SdkRuntimeProbeResult): string {
   return formatDiagnostics(result) ?? ''
 }
 
-export function classifySdkRuntimeFailure(result: SdkRuntimeProbeResult): string {
-  const diagnostics = diagnosticText(result)
+const FAILURE_RULES: readonly FailureRule[] = [
+  {
+    id: 'cpu-instruction',
+    matches: (result, diagnostics) =>
+      result.signal === 'SIGILL' ||
+      /exitSignal=SIGILL|signal SIGILL|illegal instruction|\bSIGILL\b/i.test(diagnostics),
+    hint: 'A native addon used an instruction unsupported by this CPU. Use a compatible addon build or a worker bundle that excludes the affected plugin.'
+  },
+  {
+    id: 'libstdcxx',
+    matches: (_result, diagnostics) =>
+      /GLIBCXX_[\d.]+.*not found|version [`\'"]GLIBCXX_/i.test(diagnostics),
+    hint: 'The host libstdc++ may be missing or older than a native addon requires. Install or update libstdc++, or use an addon build compatible with this distribution.'
+  },
+  {
+    id: 'visual-cpp-runtime',
+    matches: (_result, diagnostics) =>
+      /VCRUNTIME\d*\.dll|MSVCP\d*\.dll|Visual C\+\+.*Redistributable/i.test(diagnostics),
+    hint: 'A Microsoft Visual C++ runtime dependency may be missing. Install the current Visual C++ Redistributable and retry.'
+  },
+  {
+    id: 'vulkan',
+    matches: (_result, diagnostics) =>
+      /VK_ERROR_|vkCreateInstance|vkEnumerateInstance|(?:lib)?vulkan[^\n]*(failed|error|not found|unsupported|version|cannot open)/i.test(
+        diagnostics
+      ),
+    hint: 'A Vulkan dependency may have failed to load or initialize. Install or update the Vulkan loader and GPU driver to versions providing Vulkan 1.4 or newer.'
+  },
+  {
+    id: 'shared-library',
+    matches: (_result, diagnostics) =>
+      /error while loading shared libraries|cannot open shared object file|Library not loaded|The specified module could not be found/i.test(
+        diagnostics
+      ),
+    hint: 'A native shared-library dependency may not have loaded. Re-run with --verbose to identify the missing or incompatible library.'
+  },
+  {
+    id: 'bare-runtime',
+    matches: (_result, diagnostics) =>
+      /BARE_RUNTIME_BINARY_NOT_FOUND|BareRuntimeBinaryNotFoundError|Bare runtime binary.*not found/i.test(
+        diagnostics
+      ),
+    hint: 'The Bare runtime binary appears to be missing. Reinstall @qvac/sdk with lifecycle scripts enabled for this host.'
+  },
+  {
+    id: 'worker-handshake-timeout',
+    matches: (result, diagnostics) =>
+      result.outcome === 'timeout' ||
+      /RPC_INIT_TIMEOUT|RPCInitTimeoutError|RPC initialization timed out/i.test(diagnostics),
+    hint: 'The SDK worker did not complete its startup handshake. Re-run with --verbose to inspect the bounded worker output.'
+  },
+  {
+    id: 'spawn-error',
+    matches: (result) => result.outcome === 'spawn-error',
+    hint: 'The isolated Node.js probe could not be started. Re-run with --verbose for the operating-system error.'
+  },
+  {
+    id: 'protocol-error',
+    matches: (result) => result.outcome === 'protocol-error',
+    hint: 'The isolated probe exited without a valid result. Re-run with --verbose to inspect its bounded output.'
+  },
+  {
+    id: 'import-failed',
+    matches: (result) => result.phase === 'import',
+    hint: 'The installed @qvac/sdk could not be imported or initialized. Re-run with --verbose to inspect the error.'
+  },
+  {
+    id: 'cleanup-failed',
+    matches: (result) => result.phase === 'close',
+    hint: 'The SDK worker responded, but its cleanup failed. Re-run with --verbose to inspect the cleanup error.'
+  }
+]
 
-  if (
-    result.signal === 'SIGILL' ||
-    /exitSignal=SIGILL|signal SIGILL|illegal instruction|\bSIGILL\b/i.test(diagnostics)
-  ) {
-    return 'A native addon used an instruction unsupported by this CPU. Use a compatible addon build or a worker bundle that excludes the affected plugin.'
+const DEFAULT_FAILURE_RULE: SdkRuntimeFailureClassification = {
+  id: 'heartbeat-failed',
+  hint: 'The SDK worker failed its heartbeat. Re-run with --verbose to inspect the bounded worker output.'
+}
+
+const WINDOWS_WORKER_WARNING =
+  'On Windows, a Bare worker process may still be running after a failed deep check; terminate it manually if needed.'
+
+export function classifySdkRuntimeFailure(
+  result: SdkRuntimeProbeResult,
+  platform: NodeJS.Platform = process.platform
+): SdkRuntimeFailureClassification {
+  const diagnostics = diagnosticText(result)
+  const rule = FAILURE_RULES.find((candidate) => candidate.matches(result, diagnostics))
+  const classification = rule ?? DEFAULT_FAILURE_RULE
+  const warnAboutWindowsWorker = platform === 'win32' && result.outcome !== 'spawn-error'
+  return {
+    id: classification.id,
+    hint: warnAboutWindowsWorker
+      ? `${classification.hint} ${WINDOWS_WORKER_WARNING}`
+      : classification.hint
   }
-  if (/GLIBCXX_[\d.]+.*not found|version [`\'"]GLIBCXX_/i.test(diagnostics)) {
-    return 'The host libstdc++ is older than a native addon requires. Update libstdc++ or use an addon build compatible with this distribution.'
-  }
-  if (/VCRUNTIME\d*\.dll|MSVCP\d*\.dll|Visual C\+\+.*Redistributable/i.test(diagnostics)) {
-    return 'A Microsoft Visual C++ runtime dependency is missing. Install the current Visual C++ Redistributable and retry.'
-  }
-  if (
-    /VK_ERROR_|vkCreateInstance|vkEnumerateInstance|(?:lib)?vulkan[^\n]*(failed|error|not found|unsupported|version|cannot open)/i.test(
-      diagnostics
-    )
-  ) {
-    return 'A Vulkan dependency failed to load or initialize. Install or update the Vulkan loader and GPU driver to versions providing Vulkan 1.4 or newer.'
-  }
-  if (
-    /error while loading shared libraries|cannot open shared object file|Library not loaded|The specified module could not be found/i.test(
-      diagnostics
-    )
-  ) {
-    return 'A native shared-library dependency could not be loaded. Re-run with --verbose to identify the missing library.'
-  }
-  if (
-    /BARE_RUNTIME_BINARY_NOT_FOUND|BareRuntimeBinaryNotFoundError|Bare runtime binary.*not found/i.test(
-      diagnostics
-    )
-  ) {
-    return 'The Bare runtime binary is missing. Reinstall @qvac/sdk with lifecycle scripts enabled for this host.'
-  }
-  if (
-    result.outcome === 'timeout' ||
-    /RPC_INIT_TIMEOUT|RPCInitTimeoutError|RPC initialization timed out/i.test(diagnostics)
-  ) {
-    return 'The SDK worker did not complete its startup handshake. Re-run with --verbose to inspect the bounded worker output.'
-  }
-  if (result.outcome === 'spawn-error') {
-    return 'The isolated Node.js probe could not be started. Re-run with --verbose for the operating-system error.'
-  }
-  if (result.outcome === 'protocol-error') {
-    return 'The isolated probe exited without a valid result. Re-run with --verbose to inspect its bounded output.'
-  }
-  if (result.phase === 'close') {
-    return 'The SDK worker responded, but its cleanup failed. Re-run with --verbose to inspect the cleanup error.'
-  }
-  return 'The SDK worker failed its heartbeat. Re-run with --verbose to inspect the bounded worker output.'
 }
 
 function formatFailureValue(result: SdkRuntimeProbeResult): string {
@@ -286,6 +357,7 @@ export async function checkSdkRuntime(projectRoot: string): Promise<CheckResult>
       label: '@qvac/sdk worker heartbeat',
       status: 'fail',
       severity: 'required',
+      code: 'sdk-not-found',
       value: 'SDK entrypoint not found',
       hint: 'Install @qvac/sdk in this project, or repair the installation, before running --deep.',
       detail: `SDK resolution error:\n${detail}`
@@ -304,13 +376,15 @@ export async function checkSdkRuntime(projectRoot: string): Promise<CheckResult>
   }
 
   const detail = formatDiagnostics(result)
+  const classification = classifySdkRuntimeFailure(result)
   return {
     id: 'sdk-runtime',
     label: '@qvac/sdk worker heartbeat',
     status: 'fail',
     severity: 'required',
+    code: classification.id,
     value: formatFailureValue(result),
-    hint: classifySdkRuntimeFailure(result),
+    hint: classification.hint,
     ...(detail !== undefined ? { detail } : {})
   }
 }

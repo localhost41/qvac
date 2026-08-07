@@ -84,11 +84,14 @@ and bounded. A valid success result and exit code `0` are both required.
 The outer probe timeout is 45 seconds, and SDK cleanup is bounded separately to
 two seconds. On Unix, a timeout requests graceful termination of the probe
 process tree and then forces termination after a two-second grace period. On
-Windows, the CLI terminates the entire tree with `taskkill /T /F`; failed probes
-are also cleaned up before the result is returned. The report prioritizes concrete CPU, native-library, Visual C++ runtime, Vulkan,
-and Bare errors over a generic RPC-handshake timeout. These classifications are
-diagnostic guidance; native loader messages that lack structured SDK error
-codes are necessarily matched heuristically.
+Windows, the CLI requests termination of the live tree with `taskkill /T /F`
+when the probe times out. After a failed Windows probe exits, the CLI cannot
+reliably address descendants through the exited parent's PID, so the report
+warns that a Bare worker may still require manual termination. The report
+prioritizes concrete CPU, native-library, Visual C++ runtime, Vulkan, and Bare
+errors over generic lifecycle failures. These classifications are diagnostic
+guidance; native loader messages that lack structured SDK error codes are
+necessarily matched heuristically.
 
 ## Exit codes
 
@@ -114,6 +117,7 @@ interface DoctorReport {
       label: string
       status: 'pass' | 'warn' | 'fail' | 'skip' | 'info'
       severity: 'required' | 'recommended' | 'informational'
+      code?: string // stable machine-readable failure classification
       value?: string
       detail?: string
       hint?: string // typically present for any non-pass result

@@ -446,7 +446,13 @@ describe('deep SDK runtime probe', () => {
       if (result.probeMessage?.ok === false) {
         assert.match(result.probeMessage.error.message, /GLIBCXX_3\.4\.30/)
       }
-      assert.match(classifySdkRuntimeFailure(result), /libstdc\+\+/i)
+      const classification = classifySdkRuntimeFailure(result)
+      assert.equal(classification.id, 'libstdcxx')
+      assert.match(classification.hint, /may be missing or older/i)
+
+      const check = await checkSdkRuntime(fixture.projectRoot)
+      assert.equal(check.code, 'libstdcxx')
+      assert.match(check.hint ?? '', /may be missing or older/i)
     } finally {
       fs.rmSync(fixture.projectRoot, { recursive: true, force: true })
     }
@@ -485,7 +491,9 @@ describe('deep SDK runtime probe', () => {
         timeoutMs: 50
       })
       assert.equal(result.outcome, 'timeout')
-      assert.match(classifySdkRuntimeFailure(result), /startup handshake/i)
+      const classification = classifySdkRuntimeFailure(result)
+      assert.equal(classification.id, 'worker-handshake-timeout')
+      assert.match(classification.hint, /startup handshake/i)
     } finally {
       fs.rmSync(fixture.projectRoot, { recursive: true, force: true })
     }
@@ -580,33 +588,87 @@ describe('deep SDK runtime probe', () => {
 
   it('classifies common signal, Bare, Windows runtime, and Vulkan failures', () => {
     assert.match(
-      classifySdkRuntimeFailure(failedProbe({ signal: 'SIGILL' })),
+      classifySdkRuntimeFailure(failedProbe({ signal: 'SIGILL' })).hint,
       /unsupported by this CPU/i
     )
     assert.match(
-      classifySdkRuntimeFailure(failedProbe({ stderr: 'BareRuntimeBinaryNotFoundError' })),
-      /Bare runtime binary is missing/i
+      classifySdkRuntimeFailure(failedProbe({ stderr: 'BareRuntimeBinaryNotFoundError' })).hint,
+      /Bare runtime binary appears to be missing/i
     )
     assert.match(
-      classifySdkRuntimeFailure(failedProbe({ stderr: 'VCRUNTIME140.dll was not found' })),
+      classifySdkRuntimeFailure(failedProbe({ stderr: 'VCRUNTIME140.dll was not found' })).hint,
       /Visual C\+\+ runtime dependency/i
     )
     assert.match(
       classifySdkRuntimeFailure(
         failedProbe({ stderr: 'libnative.so: cannot open shared object file' })
-      ),
+      ).hint,
       /shared-library dependency/i
     )
     assert.match(
-      classifySdkRuntimeFailure(failedProbe({ stderr: 'vkCreateInstance failed' })),
+      classifySdkRuntimeFailure(failedProbe({ stderr: 'vkCreateInstance failed' })).hint,
       /Vulkan dependency/i
     )
     assert.match(
       classifySdkRuntimeFailure(
         failedProbe({ stderr: 'libvulkan.so.1: cannot open shared object file' })
-      ),
+      ).hint,
       /Vulkan dependency/i
     )
+  })
+
+  it('returns stable failure ids in explicit priority order', () => {
+    const cases: Array<[SdkRuntimeProbeResult, string]> = [
+      [failedProbe({ signal: 'SIGILL' }), 'cpu-instruction'],
+      [failedProbe({ stderr: "version 'GLIBCXX_3.4.30' not found" }), 'libstdcxx'],
+      [failedProbe({ stderr: 'VCRUNTIME140.dll was not found' }), 'visual-cpp-runtime'],
+      [failedProbe({ stderr: 'vkCreateInstance failed' }), 'vulkan'],
+      [failedProbe({ stderr: 'libnative.so: cannot open shared object file' }), 'shared-library'],
+      [failedProbe({ stderr: 'BareRuntimeBinaryNotFoundError' }), 'bare-runtime'],
+      [failedProbe({ outcome: 'timeout' }), 'worker-handshake-timeout'],
+      [failedProbe({ outcome: 'spawn-error' }), 'spawn-error'],
+      [failedProbe({ outcome: 'protocol-error' }), 'protocol-error'],
+      [failedProbe({ phase: 'import' }), 'import-failed'],
+      [failedProbe({ phase: 'close' }), 'cleanup-failed'],
+      [failedProbe({ phase: 'heartbeat' }), 'heartbeat-failed']
+    ]
+
+    for (const [result, expectedId] of cases) {
+      assert.equal(classifySdkRuntimeFailure(result).id, expectedId)
+    }
+  })
+
+  it('classifies import failures separately from heartbeat failures', () => {
+    const classification = classifySdkRuntimeFailure(failedProbe({ phase: 'import' }))
+    assert.equal(classification.id, 'import-failed')
+    assert.match(classification.hint, /could not be imported or initialized/i)
+  })
+
+  it('reports a real SDK import-surface failure with the import classification', async () => {
+    const fixture = createSdkFixture(`
+      export async function heartbeat() {}
+    `)
+    try {
+      const result = await probeSdkRuntime(fixture.entrypoint, fixture.projectRoot, {
+        timeoutMs: 2_000
+      })
+      assert.equal(result.outcome, 'fail')
+      assert.equal(result.phase, 'import')
+      const classification = classifySdkRuntimeFailure(result)
+      assert.equal(classification.id, 'import-failed')
+      assert.match(classification.hint, /could not be imported or initialized/i)
+    } finally {
+      fs.rmSync(fixture.projectRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('warns Windows users that a failed deep check may leave a Bare worker', () => {
+    const windows = classifySdkRuntimeFailure(failedProbe(), 'win32')
+    assert.match(windows.hint, /Bare worker process may still be running/i)
+    assert.match(windows.hint, /terminate it manually/i)
+
+    const linux = classifySdkRuntimeFailure(failedProbe(), 'linux')
+    assert.doesNotMatch(linux.hint, /may still be running/i)
   })
 
   it('rejects a protocol failure with a malformed cleanup error', () => {
@@ -637,8 +699,14 @@ describe('deep SDK runtime probe', () => {
     assert.match(
       classifySdkRuntimeFailure(
         failedProbe({ stderr: 'RPCInitTimeoutError: RPC initialization timed out\nsignal SIGILL' })
-      ),
+      ).hint,
       /unsupported by this CPU/i
+    )
+    assert.equal(
+      classifySdkRuntimeFailure(
+        failedProbe({ stderr: 'RPCInitTimeoutError: RPC initialization timed out\nsignal SIGILL' })
+      ).id,
+      'cpu-instruction'
     )
   })
 
@@ -650,7 +718,7 @@ describe('deep SDK runtime probe', () => {
         timeoutMs: 2_000
       })
       assert.equal(result.outcome, 'spawn-error')
-      assert.match(classifySdkRuntimeFailure(result), /could not be started/i)
+      assert.match(classifySdkRuntimeFailure(result).hint, /could not be started/i)
     } finally {
       fs.rmSync(fixture.projectRoot, { recursive: true, force: true })
     }
@@ -677,6 +745,7 @@ describe('deep SDK runtime probe', () => {
       const result = await checkSdkRuntime(projectRoot)
       assert.equal(result.status, 'fail')
       assert.equal(result.severity, 'required')
+      assert.equal(result.code, 'sdk-not-found')
       assert.match(result.value ?? '', /not found/i)
     } finally {
       fs.rmSync(projectRoot, { recursive: true, force: true })
@@ -690,7 +759,7 @@ describe('deep SDK runtime probe', () => {
         timeoutMs: 2_000
       })
       assert.equal(result.outcome, 'protocol-error')
-      assert.match(classifySdkRuntimeFailure(result), /without a valid result/i)
+      assert.match(classifySdkRuntimeFailure(result).hint, /without a valid result/i)
     } finally {
       fs.rmSync(fixture.projectRoot, { recursive: true, force: true })
     }
@@ -747,7 +816,7 @@ describe('deep SDK runtime probe', () => {
       })
       assert.equal(result.outcome, 'fail')
       assert.equal(result.phase, 'close')
-      assert.match(classifySdkRuntimeFailure(result), /cleanup failed/i)
+      assert.match(classifySdkRuntimeFailure(result).hint, /cleanup failed/i)
     } finally {
       fs.rmSync(fixture.projectRoot, { recursive: true, force: true })
     }
