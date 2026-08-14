@@ -1,9 +1,9 @@
 import configPlugins from '@expo/config-plugins'
 import type { ExpoConfig } from 'expo/config'
-import { spawn } from 'node:child_process'
+import { spawn } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
-import { execPath } from 'node:process'
+import { execPath } from 'process'
 import { bundleSdk, verifyBundle, hasErrors, formatVerifyBundleResult } from '@/commands'
 import { CONFIG_CANDIDATES } from '@/client/config-loader/resolve-config.node'
 import { resolveSDKPackageDir } from '@/expo/plugins/resolve-sdk-package-dir'
@@ -121,7 +121,7 @@ async function runBundler(
 async function runIOSAddonLinker(linkerPath: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const proc = spawn(execPath, [linkerPath], {
-      stdio: ['ignore', 'ignore', 'pipe']
+      stdio: ['ignore', 'inherit', 'pipe']
     })
     let stderr = ''
 
