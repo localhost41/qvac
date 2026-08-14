@@ -543,7 +543,7 @@ describe('deep SDK runtime probe', () => {
     let descendantPid: number | undefined
     try {
       const result = await probeSdkRuntime(fixture.entrypoint, fixture.projectRoot, {
-        timeoutMs: 100
+        timeoutMs: 1_000
       })
       assert.equal(result.outcome, 'timeout')
       descendantPid = Number(
