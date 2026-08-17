@@ -2,15 +2,39 @@
   "dependencies": [
     {
       "name": "qvac-lib-inference-addon-cpp",
-      "version>=": "1.2.4"
+      "version>=": "1.3.3"
     },
     {
       "name": "qvac-lint-cpp",
       "version>=": "1.4.4#3"
     },
     {
-      "name": "audiogen-cpp",
-      "version>=": "2026-08-03"
+      "name": "speech-cpp",
+      "default-features": false,
+      "features": [
+        "audiogen",
+        "metal"
+      ],
+      "platform": "osx | ios"
+    },
+    {
+      "name": "speech-cpp",
+      "default-features": false,
+      "features": [
+        "audiogen",
+        "vulkan",
+        "opencl"
+      ],
+      "platform": "android"
+    },
+    {
+      "name": "speech-cpp",
+      "default-features": false,
+      "features": [
+        "audiogen",
+        "vulkan"
+      ],
+      "platform": "!(osx | ios | android)"
     }
   ],
   "features": {
@@ -24,8 +48,12 @@
       "description": "Enable Vulkan GPU acceleration",
       "dependencies": [
         {
-          "name": "audiogen-cpp",
-          "features": ["vulkan"]
+          "name": "speech-cpp",
+          "default-features": false,
+          "features": [
+            "vulkan"
+          ],
+          "platform": "!(osx | ios)"
         }
       ]
     }
