@@ -18,6 +18,11 @@ const DEFERRED_MODULES = ['expo-file-system', 'react-native-bare-kit']
 
 const MOBILE_HOSTS = ['android-arm64', 'ios-arm64', 'ios-arm64-simulator', 'ios-x64-simulator']
 
+type BareKitLinkerPaths = {
+  android: string | null
+  ios: string | null
+}
+
 /**
  * Expo plugin: bundle, verify, then copy the mobile worker bundle.
  *
@@ -38,15 +43,15 @@ function withMobileBundle(config: ExpoConfig): ExpoConfig {
     }
 
     const deferredModules = [...DEFERRED_MODULES, `${sdkPackage.name}/worker.mobile.bundle`]
-    const iosLinkerPath = await runBundler(projectRoot, sdkPackage.dir, configPath, deferredModules)
+    const linkerPaths = await runBundler(projectRoot, sdkPackage.dir, configPath, deferredModules)
 
     const generatedBundle = path.join(projectRoot, 'qvac', 'worker.bundle.js')
     await runVerifier(projectRoot, generatedBundle, configPath)
 
     fs.copyFileSync(generatedBundle, outputPath)
 
-    if (config.modRequest.platform === 'ios' && iosLinkerPath !== null) {
-      await runIOSAddonLinker(iosLinkerPath)
+    if (config.modRequest.platform === 'ios' && linkerPaths.ios !== null) {
+      await runIOSAddonLinker(linkerPaths.ios)
     }
 
     console.log('🫡 QVAC: Mobile bundle generated and verified')
@@ -102,8 +107,8 @@ async function runBundler(
   qvacSdkPath: string,
   configPath: string | null,
   deferredModules: string[]
-): Promise<string | null> {
-  const iosLinkerPath = patchBareKitLinkers(projectRoot, qvacSdkPath)
+): Promise<BareKitLinkerPaths> {
+  const linkerPaths = patchBareKitLinkers(projectRoot, qvacSdkPath)
 
   await bundleSdk({
     projectRoot,
@@ -114,7 +119,7 @@ async function runBundler(
     quiet: true
   })
 
-  return iosLinkerPath
+  return linkerPaths
 }
 
 /** Runs the patched iOS linker after bundleSdk has written the current addons manifest. */
@@ -151,9 +156,10 @@ async function runIOSAddonLinker(linkerPath: string): Promise<void> {
 }
 
 /**
- * Patches react-native-bare-kit linkers to use the addons manifest.
+ * Patches react-native-bare-kit linkers to use the addons manifest and returns
+ * the paths for each platform that was successfully patched.
  */
-function patchBareKitLinkers(projectRoot: string, qvacSdkPath: string): string | null {
+function patchBareKitLinkers(projectRoot: string, qvacSdkPath: string): BareKitLinkerPaths {
   const bareKitPath = findInAncestorNodeModules(projectRoot, 'react-native-bare-kit')
   if (bareKitPath === null) {
     console.warn(
@@ -161,36 +167,41 @@ function patchBareKitLinkers(projectRoot: string, qvacSdkPath: string): string |
         'skipping linker patch. The bundle will link all native addons ' +
         'rather than only those required by your bundle.'
     )
-    return null
+    return { android: null, ios: null }
   }
 
   const patchesDir = path.join(qvacSdkPath, 'src', 'expo', 'plugins', 'patches')
   if (!fs.existsSync(patchesDir)) {
     console.log(`⚠️ QVAC: patches directory not found (${patchesDir}), skipping linker patch`)
-    return null
+    return { android: null, ios: null }
   }
 
   const androidPatch = path.join(patchesDir, 'android-link.mjs')
   const androidTarget = path.join(bareKitPath, 'android', 'link.mjs')
+  let androidLinkerPath: string | null = null
   if (fs.existsSync(androidPatch)) {
     fs.copyFileSync(androidPatch, androidTarget)
     console.log('✅ QVAC: Patched android/link.mjs for manifest-aware linking')
+    androidLinkerPath = androidTarget
   } else {
     console.log(`⚠️ QVAC: Android linker patch not found (${androidPatch})`)
   }
 
   const iosPatch = path.join(patchesDir, 'ios-link.mjs')
   const iosTarget = path.join(bareKitPath, 'ios', 'link.mjs')
+  let iosLinkerPath: string | null = null
   if (fs.existsSync(iosPatch)) {
     fs.copyFileSync(iosPatch, iosTarget)
     console.log('✅ QVAC: Patched ios/link.mjs for manifest-aware linking')
-    return iosTarget
+    iosLinkerPath = iosTarget
   } else {
     console.log(`⚠️ QVAC: iOS linker patch not found (${iosPatch})`)
-    return null
   }
+
+  return { android: androidLinkerPath, ios: iosLinkerPath }
 }
 
-export { MOBILE_HOSTS, runIOSAddonLinker }
+export { MOBILE_HOSTS, patchBareKitLinkers, runIOSAddonLinker }
+export type { BareKitLinkerPaths }
 
 export default withMobileBundle
