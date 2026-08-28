@@ -1,6 +1,6 @@
 import fs from 'bare-fs'
 import path from 'bare-path'
-import { FFmpegDecoder, type DecoderOutput } from '@qvac/decoder-audio'
+import type { DecoderOutput } from '@qvac/decoder-audio'
 import { FORMATS_NEEDING_DECODE } from '@/constants/audio'
 import { Readable } from 'bare-stream'
 import Buffer from 'bare-buffer'
@@ -8,6 +8,10 @@ import { getEngineLogger } from '@/logging/index'
 import { type AudioFormat } from '@/schemas/index'
 
 const logger = getEngineLogger()
+// Keep the optional native decoder outside the static bundle graph. The
+// decoder is only needed for encoded file inputs; raw PCM and base64 inputs
+// must not make bundleSdk include bare-ffmpeg in every worker.
+const DECODER_AUDIO_MODULE = '@qvac/decoder-audio'
 
 export function needsDecoding(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase()
@@ -53,6 +57,7 @@ export async function decodeAudioToStream(
   options: DecodeAudioOptions = {}
 ): Promise<Readable> {
   const { sampleRate, inactivityTimeoutMs = DECODER_INACTIVITY_TIMEOUT_MS } = options
+  const { FFmpegDecoder } = await import(DECODER_AUDIO_MODULE)
   const decoder = new FFmpegDecoder({
     config: { audioFormat, ...(sampleRate !== undefined && { sampleRate }) },
     logger
