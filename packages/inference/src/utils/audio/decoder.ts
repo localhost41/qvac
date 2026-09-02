@@ -8,10 +8,10 @@ import { getEngineLogger } from '@/logging/index'
 import { type AudioFormat } from '@/schemas/index'
 
 const logger = getEngineLogger()
-// Keep the optional native decoder outside the static bundle graph. The
-// decoder is only needed for encoded file inputs; raw PCM and base64 inputs
-// must not make bundleSdk include bare-ffmpeg in every worker.
-const DECODER_AUDIO_MODULE = '@qvac/decoder-audio'
+// Keep this as a literal dynamic import. It lets bare-pack either include the
+// decoder (the safe default) or resolve it as an explicitly deferred module
+// for a mobile app that has opted out of encoded-file support. Hiding the
+// specifier behind a variable makes the packaged worker unable to resolve it.
 
 export function needsDecoding(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase()
@@ -57,7 +57,7 @@ export async function decodeAudioToStream(
   options: DecodeAudioOptions = {}
 ): Promise<Readable> {
   const { sampleRate, inactivityTimeoutMs = DECODER_INACTIVITY_TIMEOUT_MS } = options
-  const { FFmpegDecoder } = await import(DECODER_AUDIO_MODULE)
+  const { FFmpegDecoder } = await import('@qvac/decoder-audio')
   const decoder = new FFmpegDecoder({
     config: { audioFormat, ...(sampleRate !== undefined && { sampleRate }) },
     logger
