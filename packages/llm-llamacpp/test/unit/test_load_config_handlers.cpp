@@ -93,6 +93,16 @@ TEST(
   EXPECT_THROW(applyLoadConfigHandlers(params, map), StatusError);
 }
 
+TEST(
+    LoadConfigHandlers_ImageNoUpscale,
+    RejectsHighBitByteWithoutUndefinedBehavior) {
+  common_params params;
+  const std::string highBitValue(1, static_cast<char>(0xFF));
+  std::unordered_map<std::string, std::string> map{
+      {"image-no-upscale", highBitValue}};
+  EXPECT_THROW(applyLoadConfigHandlers(params, map), StatusError);
+}
+
 TEST(LoadConfigHandlers_ImageTokens, ParsesMaxAndMin) {
   EXPECT_EQ(applyOne("image-max-tokens", "1024").image_max_tokens, 1024);
   EXPECT_EQ(applyOne("image-min-tokens", "16").image_min_tokens, 16);
