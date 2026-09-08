@@ -6,7 +6,8 @@ import path from 'node:path'
 
 const require = createRequire(import.meta.url)
 const phase = process.argv[2]
-const sdkRoot = path.dirname(require.resolve('@qvac/sdk/package.json'))
+const sdkRoot = path.resolve('node_modules/@qvac/sdk')
+const sdkVersion = JSON.parse(readFileSync(path.join(sdkRoot, 'package.json'), 'utf8')).version
 const sourceCommit = '5ae0616cdae0c17fc7ac7a007a85e8b78269c13e'
 if (phase === 'patch') {
   const response = await fetch(`https://raw.githubusercontent.com/localhost41/qvac/${sourceCommit}/packages/sdk/src/client/rpc/worker-startup-error.ts`)
@@ -35,7 +36,7 @@ function serialize(error) {
   if (!error) return null
   return Object.fromEntries(['name', 'message', 'code', 'workerExited', 'exitCode', 'exitSignal', 'stderrTail'].filter(key => error[key] !== undefined).map(key => [key, error[key]]).concat(error.cause ? [['cause', serialize(error.cause)]] : []))
 }
-const result = { phase, sdk: require('@qvac/sdk/package.json').version, platform: process.platform, arch: process.arch, node: process.version, heartbeat: caught ? 'failed' : 'passed', error: serialize(caught) }
+const result = { phase, sdk: sdkVersion, platform: process.platform, arch: process.arch, node: process.version, heartbeat: caught ? 'failed' : 'passed', error: serialize(caught) }
 writeFileSync(`${phase}-result.json`, JSON.stringify(result, null, 2))
 console.log(JSON.stringify(result, null, 2))
 assert.equal(result.sdk, '0.19.0')

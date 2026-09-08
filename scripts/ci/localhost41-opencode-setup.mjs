@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
@@ -19,8 +19,15 @@ if (process.argv[2] === 'verify') {
   assert.equal(versions['@qvac/opencode-plugin'], '0.3.1')
   for (const name of ['@qvac/opencode-plugin', '@qvac/ai-sdk-provider', '@qvac/cli']) {
     const localRequire = createRequire(path.resolve('node_modules', name, 'package.json'))
-    const sdkPath = localRequire.resolve('@qvac/sdk/package.json')
-    assert.equal(JSON.parse(readFileSync(sdkPath, 'utf8')).version, '0.19.0')
+    let sdkRoot = path.dirname(localRequire.resolve('@qvac/sdk'))
+    while (!existsSync(path.join(sdkRoot, 'package.json'))) {
+      const parent = path.dirname(sdkRoot)
+      assert.notEqual(parent, sdkRoot, 'SDK package root must resolve')
+      sdkRoot = parent
+    }
+    const sdkManifest = JSON.parse(readFileSync(path.join(sdkRoot, 'package.json'), 'utf8'))
+    assert.equal(sdkManifest.name, '@qvac/sdk')
+    assert.equal(sdkManifest.version, '0.19.0')
   }
   writeFileSync('../artifacts/versions.json', JSON.stringify({ versions, releaseCommit, verifierCommit, note: 'Plugin 0.3.0 published dist with exact 0.3.1 release-PR package.json; 0.3.1 is not yet published. All other packages are published versions.' }, null, 2))
   const config = JSON.parse(readFileSync('opencode.json', 'utf8'))
