@@ -1,0 +1,105 @@
+name: localhost41 SDK 0.19 runtime evidence
+on:
+  push:
+    branches: [feature-sdk019-runtime-evidence]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  libatomic:
+    if: github.repository == 'localhost41/qvac'
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    container: node:22-bookworm-slim
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+      - name: Install published SDK without OS prerequisite workaround
+        working-directory: /tmp
+        run: |
+          mkdir qvac-libatomic-probe
+          cd qvac-libatomic-probe
+          npm init -y
+          npm install --omit=peer --no-audit --no-fund @qvac/sdk@0.19.0 typescript@5.9.3
+          cp "$GITHUB_WORKSPACE/scripts/ci/localhost41-libatomic-probe.mjs" ./probe.mjs
+          node -e 'require("fs").writeFileSync("qvac.config.json", JSON.stringify({plugins:["@qvac/sdk/llamacpp-completion/plugin"],cacheDirectory:"/tmp/qvac-libatomic-cache",rpcInitTimeoutMs:15000,loggerLevel:"off"}))'
+          cat /etc/os-release > os-release.txt
+          node --version > node-version.txt
+          npm ls --all --json > dependency-tree.json || true
+          if dpkg-query -W -f='${Status}' libatomic1 2>/dev/null | grep -q 'install ok installed'; then
+            echo 'libatomic1 is already installed; this is not the intended baseline'
+            exit 1
+          fi
+      - name: Released SDK exposes real missing-library failure
+        working-directory: /tmp/qvac-libatomic-probe
+        run: node probe.mjs baseline
+      - name: Apply exact PR 4332 source to installed SDK
+        working-directory: /tmp/qvac-libatomic-probe
+        run: node probe.mjs patch
+      - name: Patched SDK reports actionable hint with original metadata
+        working-directory: /tmp/qvac-libatomic-probe
+        run: node probe.mjs patched
+      - name: Install documented prerequisite and verify worker startup
+        working-directory: /tmp/qvac-libatomic-probe
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libatomic1
+          node probe.mjs fixed
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        if: always()
+        with:
+          name: libatomic-${{ matrix.runner }}
+          path: |
+            /tmp/qvac-libatomic-probe/*-result.json
+            /tmp/qvac-libatomic-probe/package-lock.json
+            /tmp/qvac-libatomic-probe/dependency-tree.json
+            /tmp/qvac-libatomic-probe/os-release.txt
+            /tmp/qvac-libatomic-probe/node-version.txt
+            /tmp/qvac-libatomic-probe/patch-source.ts
+          retention-days: 14
+  opencode:
+    if: github.repository == 'localhost41/qvac'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      XDG_CONFIG_HOME: ${{ github.workspace }}/.probe/config
+      XDG_DATA_HOME: ${{ github.workspace }}/.probe/data
+      XDG_CACHE_HOME: ${{ github.workspace }}/.probe/cache
+      XDG_STATE_HOME: ${{ github.workspace }}/.probe/state
+      QVAC_HOST_LOG: ${{ github.workspace }}/.probe/artifacts/qvac-host.log
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
+        with:
+          node-version: '22'
+      - name: Prepare candidate release dependency stack
+        run: |
+          mkdir -p .probe/artifacts .probe/project
+          cd .probe/project
+          node ../../scripts/ci/localhost41-opencode-setup.mjs
+          npm install --omit=peer --no-audit --no-fund
+          npm ls --all --json > ../artifacts/dependency-tree.json || true
+          cp package-lock.json ../artifacts/package-lock.json
+          node ../../scripts/ci/localhost41-opencode-setup.mjs verify
+      - name: Real OpenCode answer with SDK 0.19.0
+        working-directory: .probe/project
+        run: |
+          npx --no-install opencode --version > ../artifacts/opencode-version.txt
+          timeout 20m npx --no-install opencode run --print-logs --log-level DEBUG --model qvac/qwen3.5-0.8b --format json 'Reply with exactly this text and nothing else: qvac-ok' > ../artifacts/opencode-run.jsonl 2> ../artifacts/opencode-run.stderr
+          node ../artifacts/verify-opencode-run-output.cjs ../artifacts/opencode-run.jsonl
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        if: always()
+        with:
+          name: opencode-sdk019
+          include-hidden-files: true
+          path: .probe/artifacts/
+          retention-days: 14
