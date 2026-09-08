@@ -45,11 +45,11 @@ jobs:
       - name: Patched SDK reports actionable hint with original metadata
         working-directory: /tmp/qvac-libatomic-probe
         run: node probe.mjs patched
-      - name: Install libatomic and observed OpenSSL prerequisite, then verify startup
+      - name: Install observed Linux prerequisites and verify startup
         working-directory: /tmp/qvac-libatomic-probe
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends libatomic1 libssl3
+          apt-get install -y --no-install-recommends libatomic1 libssl3 libvulkan1
           node probe.mjs fixed
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         if: always()
