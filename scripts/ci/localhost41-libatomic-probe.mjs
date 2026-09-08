@@ -41,7 +41,7 @@ writeFileSync(`${phase}-result.json`, JSON.stringify(result, null, 2))
 console.log(JSON.stringify(result, null, 2))
 assert.equal(result.sdk, '0.19.0')
 if (phase === 'fixed') {
-  assert.equal(caught, undefined, 'worker must start after installing libatomic1')
+  assert.equal(caught, undefined, 'worker must start after installing libatomic1 and libssl3')
 } else {
   assert(caught?.cause instanceof sdk.WorkerStartupError, 'startup cause must retain its SDK type')
   assert.match(caught.cause.stderrTail, /libatomic\.so\.1: cannot open shared object file: No such file or directory/)
