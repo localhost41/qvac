@@ -42,7 +42,7 @@ export interface BundleSdkResult {
  * native addon to remain in the bundle and addons manifest.
  */
 export function resolveDeferredModules(
-  config: { includeAudioDecoder?: boolean },
+  config: { includeAudioDecoder?: boolean | undefined },
   requestedModules: string[]
 ): string[] {
   const modules = [...requestedModules]

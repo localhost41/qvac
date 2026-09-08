@@ -9,7 +9,7 @@ const bundlerConfigSchema = z.object({
 })
 
 export type QvacConfig = InferenceQvacConfig & {
-  includeAudioDecoder?: boolean
+  includeAudioDecoder?: boolean | undefined
 }
 
 export function validateConfig(config: unknown): QvacConfig {

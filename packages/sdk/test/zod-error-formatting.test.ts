@@ -79,8 +79,12 @@ test('validateConfig throws a readable ConfigValidationFailedError', function (t
 })
 
 test('validateConfig preserves the mobile audio decoder bundler option', function (t) {
-  const config = validateConfig({ includeAudioDecoder: false })
-  t.is(config.includeAudioDecoder, false)
+  for (const includeAudioDecoder of [false, true, undefined]) {
+    const config = validateConfig({ includeAudioDecoder })
+    t.is(config.includeAudioDecoder, includeAudioDecoder)
+  }
+  t.is(validateConfig({}).includeAudioDecoder, undefined)
+  t.exception(() => validateConfig({ includeAudioDecoder: 'false' }), ConfigValidationFailedError)
 })
 
 test('a malformed request rejects with a typed error, never a raw ZodError', async function (t) {
