@@ -70,7 +70,7 @@ sudo apt update
 sudo apt install -y libatomic1
 ```
 
-Omit `sudo` when running as root inside a container. Restart the application after installing the library. See [system requirements](/system-requirements#linux) for the remaining host dependencies and [issue #4290](https://github.com/tetherto/qvac/issues/4290) for the reported failure.
+Omit `sudo` when running as root inside a container. Restart the application after installing the library. If the next error names `libssl.so.3`, the worker also needs the OpenSSL 3 runtime; on Debian 12, install `libssl3`. See [system requirements](/system-requirements#linux) for the remaining host dependencies and [issue #4290](https://github.com/tetherto/qvac/issues/4290) for the reported failure.
 
 ## Startup crash: requested module does not provide a default export
 
