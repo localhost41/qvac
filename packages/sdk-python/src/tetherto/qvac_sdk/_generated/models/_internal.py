@@ -21,6 +21,267 @@ class FieldQvacSdkWireContract(RootModel[Any]):
     ]
 
 
+class AssessModelFitRequestModelsItemModel(GeneratedBaseModel):
+    name: Annotated[str, Field(description="Catalog name of the model entry.")]
+    sha256_checksum: Annotated[
+        str,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ]
+
+
+class AssessModelFitRequestModelsItemArtifactsItem(GeneratedBaseModel):
+    name: Annotated[str, Field(description="Catalog name of the model entry.")]
+    sha256_checksum: Annotated[
+        str,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ]
+
+
+class AssessModelFitRequestModelsItemWorkloadLlm(GeneratedBaseModel):
+    kind: Literal["llm"] = "llm"
+    context_tokens: Annotated[
+        int,
+        Field(
+            alias="contextTokens",
+            description="Context window the caller intends to use, in tokens.",
+            gt=0,
+            le=9007199254740991,
+        ),
+    ]
+
+
+class AssessModelFitRequestModelsItemWorkloadAudio(GeneratedBaseModel):
+    kind: Literal["audio"] = "audio"
+    window_ms: Annotated[
+        float,
+        Field(
+            alias="windowMs",
+            description="Audio window handed to the engine per call, in milliseconds.",
+            gt=0.0,
+        ),
+    ]
+    streaming: Annotated[
+        bool, Field(description="Whether the caller streams continuously.")
+    ]
+    batch: Annotated[
+        int | None,
+        Field(description="Concurrent windows per call.", gt=0, le=9007199254740991),
+    ] = None
+
+
+class AssessModelFitRequestModelsItem(GeneratedBaseModel):
+    model: Annotated[
+        AssessModelFitRequestModelsItemModel,
+        Field(
+            description="Catalog model constant to assess.",
+            title="AssessModelFitRequestModelsItemModel",
+        ),
+    ]
+    artifacts: Annotated[
+        list[AssessModelFitRequestModelsItemArtifactsItem] | None,
+        Field(description="Additional catalog constants this load also requires."),
+    ] = None
+    workload: Annotated[
+        AssessModelFitRequestModelsItemWorkloadLlm
+        | AssessModelFitRequestModelsItemWorkloadAudio,
+        Field(description="Workload the caller intends to run."),
+    ]
+
+
+class AssessModelFitRequestExecution(Enum):
+    sequential = "sequential"
+    concurrent = "concurrent"
+
+
+class AssessModelFitRequest(GeneratedBaseModel):
+    models: Annotated[
+        list[AssessModelFitRequestModelsItem],
+        Field(
+            description="Candidates to assess together under one memory budget.",
+            min_length=1,
+        ),
+    ]
+    execution: Annotated[
+        AssessModelFitRequestExecution | None,
+        Field(
+            description="Declared co-residency assumption for aggregation. Not a scheduling instruction: the SDK does not serialize, reserve, or enforce anything.",
+            title="AssessModelFitRequestExecution",
+        ),
+    ] = "sequential"
+    policy: Annotated[
+        Literal["interactive-v1"],
+        Field(
+            description="Headroom policy. `interactive-v1` withholds 20% of the memory available right now, capped at 2 GiB on desktop and 1 GiB on mobile."
+        ),
+    ] = "interactive-v1"
+    type: Literal["assessModelFit"] = "assessModelFit"
+
+
+class AssessModelFitResponseVerdict(Enum):
+    likely_fits = "likely-fits"
+    likely_too_large = "likely-too-large"
+    unknown = "unknown"
+
+
+class AssessModelFitResponseBasis(Enum):
+    system_memory = "system-memory"
+    process_memory = "process-memory"
+    device_memory = "device-memory"
+    device_budget = "device-budget"
+
+
+class AssessModelFitResponseExecution(Enum):
+    sequential = "sequential"
+    concurrent = "concurrent"
+
+
+class AssessModelFitResponseBudget(GeneratedBaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    total_bytes: Annotated[
+        float,
+        Field(
+            alias="totalBytes",
+            description="Total budgetable memory under the result’s basis: system RAM, or the process ceiling (allowance plus current footprint) under process-memory.",
+        ),
+    ]
+    used_bytes: Annotated[
+        float,
+        Field(
+            alias="usedBytes",
+            description="Memory in use at sample time under the same basis (system-wide, or this process).",
+        ),
+    ]
+    available_bytes: Annotated[
+        float,
+        Field(
+            alias="availableBytes",
+            description="Headroom before the policy applies: total − used, or the process allowance under process-memory. The reserve is a share of this.",
+        ),
+    ]
+    reserved_bytes: Annotated[
+        float,
+        Field(alias="reservedBytes", description="Headroom withheld by the policy."),
+    ]
+    available_after_reserve_bytes: Annotated[
+        float,
+        Field(
+            alias="availableAfterReserveBytes",
+            description="Budget the estimate is compared against: available − reserved.",
+        ),
+    ]
+
+
+class AssessModelFitResponseEstimate(GeneratedBaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    lower_bound_bytes: Annotated[float, Field(alias="lowerBoundBytes")]
+    upper_bound_bytes: Annotated[float, Field(alias="upperBoundBytes")]
+
+
+class AssessModelFitResponseModelsItemVerdict(Enum):
+    likely_fits = "likely-fits"
+    likely_too_large = "likely-too-large"
+    unknown = "unknown"
+
+
+class AssessModelFitResponseModelsItemEstimate(GeneratedBaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    lower_bound_bytes: Annotated[float, Field(alias="lowerBoundBytes")]
+    upper_bound_bytes: Annotated[float, Field(alias="upperBoundBytes")]
+
+
+class AssessModelFitResponseModelsItem(GeneratedBaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: Annotated[str, Field(description="Catalog name of the assessed model.")]
+    verdict: Annotated[
+        AssessModelFitResponseModelsItemVerdict,
+        Field(title="AssessModelFitResponseModelsItemVerdict"),
+    ]
+    estimate: Annotated[
+        AssessModelFitResponseModelsItemEstimate | None,
+        Field(
+            description="Absent when this model assessed as `unknown`.",
+            title="AssessModelFitResponseModelsItemEstimate",
+        ),
+    ] = None
+    estimator_version: Annotated[
+        str | None,
+        Field(
+            alias="estimatorVersion",
+            description="Estimator that produced the bounds, e.g. `llm-v1`.",
+        ),
+    ] = None
+    reasons: Annotated[list[str], Field(description="Why this model got this verdict.")]
+
+
+class AssessModelFitResponse(GeneratedBaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    verdict: Annotated[
+        AssessModelFitResponseVerdict,
+        Field(
+            description="Combined verdict across every candidate.",
+            title="AssessModelFitResponseVerdict",
+        ),
+    ]
+    basis: Annotated[
+        AssessModelFitResponseBasis,
+        Field(
+            description="The evidence the budget was derived from — system RAM, the per-process ceiling on iOS, a discrete GPU’s own memory, or on Windows the GPU memory budget the OS grants this process. The two device bases also require the system-memory budget to hold.",
+            title="AssessModelFitResponseBasis",
+        ),
+    ]
+    execution: Annotated[
+        AssessModelFitResponseExecution,
+        Field(
+            description="The declared execution mode this result assumed.",
+            title="AssessModelFitResponseExecution",
+        ),
+    ]
+    budget: Annotated[
+        AssessModelFitResponseBudget | None,
+        Field(
+            description="Absent when memory evidence was unusable.",
+            title="AssessModelFitResponseBudget",
+        ),
+    ] = None
+    estimate: Annotated[
+        AssessModelFitResponseEstimate | None,
+        Field(
+            description="Absent when the combined verdict is `unknown`.",
+            title="AssessModelFitResponseEstimate",
+        ),
+    ] = None
+    models: Annotated[
+        list[AssessModelFitResponseModelsItem],
+        Field(description="Per-candidate verdicts, in input order."),
+    ]
+    reasons: Annotated[
+        list[str], Field(description="Why the combined verdict came out this way.")
+    ]
+    assumptions: Annotated[
+        list[str],
+        Field(
+            description="Everything the result took for granted, including estimator defaults."
+        ),
+    ]
+    type: Literal["assessModelFit"] = "assessModelFit"
+
+
 class AudioGenStreamRequestTaskType(Enum):
     text2music = "text2music"
     cover_nofsq = "cover-nofsq"
@@ -63,8 +324,35 @@ class AudioGenStreamRequest(GeneratedBaseModel):
     duration: Annotated[
         float | None,
         Field(
-            description="Approximate requested duration in seconds. ACE-Step rounds to its latent frame grid; use output frames or stats.audioDurationMs as authoritative.",
+            description="Approximate requested duration in seconds. Engines round to their frame grid; use output frames or stats.audioDurationMs as authoritative.",
             gt=0.0,
+        ),
+    ] = None
+    max_frames: Annotated[
+        int | None,
+        Field(
+            alias="maxFrames",
+            description="MiniMax semantic-frame cap. Cannot be combined with duration. MiniMax only; rejected by ACE-Step.",
+            ge=1,
+            le=9007199254740991,
+        ),
+    ] = None
+    inference_steps: Annotated[
+        int | None,
+        Field(
+            alias="inferenceSteps",
+            description="MiniMax flow steps for this generation; 0 uses the model default. MiniMax only; rejected by ACE-Step.",
+            ge=0,
+            le=1000,
+        ),
+    ] = None
+    cfg_scale: Annotated[
+        float | None,
+        Field(
+            alias="cfgScale",
+            description="MiniMax flow classifier-free guidance scale for this generation. MiniMax only; rejected by ACE-Step.",
+            ge=0.0,
+            le=3.4028234663852886e38,
         ),
     ] = None
     lm_temperature: Annotated[
@@ -185,7 +473,14 @@ class AudioGenStreamResponseProgress(GeneratedBaseModel):
     )
     stage: str
     step: Annotated[int, Field(ge=0, le=9007199254740991)]
-    total: Annotated[int, Field(ge=0, le=9007199254740991)]
+    total: Annotated[
+        int,
+        Field(
+            description="Total number of steps when greater than zero. Values less than or equal to zero mean indeterminate progress and must not be rendered as a step / total determinate progress value.",
+            ge=-9007199254740991,
+            le=9007199254740991,
+        ),
+    ]
 
 
 class AudioGenStreamResponseStopReason(Enum):
@@ -202,6 +497,112 @@ class AudioGenStreamResponseStats(GeneratedBaseModel):
     real_time_factor: Annotated[float | None, Field(alias="realTimeFactor")] = None
     backend_device: Annotated[float | None, Field(alias="backendDevice")] = None
     backend_id: Annotated[float | None, Field(alias="backendId")] = None
+
+
+class AudioGenStreamResponseDiagnosticsSelectedDevice(Enum):
+    cpu = "cpu"
+    gpu = "gpu"
+
+
+class AudioGenStreamResponseDiagnosticsGraphicsApi(Enum):
+    vulkan = "vulkan"
+    opencl = "opencl"
+    opengl = "opengl"
+    webgpu = "webgpu"
+    metal = "metal"
+    direct3d11 = "direct3d11"
+    direct3d12 = "direct3d12"
+    cuda = "cuda"
+    level_zero = "levelZero"
+    rocm = "rocm"
+
+
+class AudioGenStreamResponseDiagnosticsDriver(GeneratedBaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: Annotated[str, Field(min_length=1)]
+    version: Annotated[str | None, Field(min_length=1)] = None
+
+
+class AudioGenStreamResponseDiagnosticsFallbackRequestedDevice(Enum):
+    cpu = "cpu"
+    gpu = "gpu"
+
+
+class AudioGenStreamResponseDiagnosticsFallback(GeneratedBaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    requested_backend: Annotated[
+        str | None, Field(alias="requestedBackend", min_length=1)
+    ] = None
+    requested_device: Annotated[
+        AudioGenStreamResponseDiagnosticsFallbackRequestedDevice | None,
+        Field(
+            alias="requestedDevice",
+            title="AudioGenStreamResponseDiagnosticsFallbackRequestedDevice",
+        ),
+    ] = None
+    reason: Annotated[str, Field(min_length=1)]
+
+
+class AudioGenStreamResponseDiagnosticsProbeStatus(Enum):
+    compatible = "compatible"
+    incompatible = "incompatible"
+    unknown = "unknown"
+
+
+class AudioGenStreamResponseDiagnosticsProbe(GeneratedBaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: Annotated[
+        AudioGenStreamResponseDiagnosticsProbeStatus,
+        Field(title="AudioGenStreamResponseDiagnosticsProbeStatus"),
+    ]
+    backend: Annotated[str, Field(min_length=1)]
+    reason: str | None = None
+
+
+class AudioGenStreamResponseDiagnostics(GeneratedBaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    selected_backend: Annotated[str, Field(alias="selectedBackend", min_length=1)]
+    selected_device: Annotated[
+        AudioGenStreamResponseDiagnosticsSelectedDevice,
+        Field(
+            alias="selectedDevice",
+            title="AudioGenStreamResponseDiagnosticsSelectedDevice",
+        ),
+    ]
+    graphics_api: Annotated[
+        AudioGenStreamResponseDiagnosticsGraphicsApi | None,
+        Field(
+            alias="graphicsApi", title="AudioGenStreamResponseDiagnosticsGraphicsApi"
+        ),
+    ] = None
+    driver: Annotated[
+        AudioGenStreamResponseDiagnosticsDriver | None,
+        Field(title="AudioGenStreamResponseDiagnosticsDriver"),
+    ] = None
+    gpu_id: Annotated[
+        str | None,
+        Field(
+            alias="gpuId",
+            description="GPU ID from the current worker's resource collector; stable only for that collector's lifetime.",
+            min_length=1,
+        ),
+    ] = None
+    fallback: Annotated[
+        AudioGenStreamResponseDiagnosticsFallback | None,
+        Field(title="AudioGenStreamResponseDiagnosticsFallback"),
+    ] = None
+    probe: Annotated[
+        AudioGenStreamResponseDiagnosticsProbe | None,
+        Field(title="AudioGenStreamResponseDiagnosticsProbe"),
+    ] = None
 
 
 class AudioGenStreamResponse(GeneratedBaseModel):
@@ -228,6 +629,13 @@ class AudioGenStreamResponse(GeneratedBaseModel):
     ] = None
     stats: Annotated[
         AudioGenStreamResponseStats | None, Field(title="AudioGenStreamResponseStats")
+    ] = None
+    diagnostics: Annotated[
+        AudioGenStreamResponseDiagnostics | None,
+        Field(
+            description="Backend selection detail for the completed run. Carries the same payload the engine attaches to the internal diagnostics symbol, so an RPC client can read it.",
+            title="AudioGenStreamResponseDiagnostics",
+        ),
     ] = None
 
 
@@ -2162,6 +2570,11 @@ class CompletionStreamResponse(GeneratedBaseModel):
     ]
 
 
+class AudioGenEngine(Enum):
+    acestep = "acestep"
+    minimax = "minimax"
+
+
 class AudioGenTaskType(Enum):
     text2_music = "text2music"
     cover_nofsq = "cover-nofsq"
@@ -2598,9 +3011,29 @@ class DiffusionStreamResponse(GeneratedBaseModel):
 
 class DownloadAssetRequest(GeneratedBaseModel):
     type: Literal["downloadAsset"] = "downloadAsset"
-    asset_src: Annotated[str, Field(alias="assetSrc")]
+    asset_src: Annotated[
+        str,
+        Field(
+            alias="assetSrc",
+            description="The asset to download and cache: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI.",
+        ),
+    ]
     with_progress: Annotated[bool | None, Field(alias="withProgress")] = None
     seed: bool | None = None
+    require_http_checksum: Annotated[
+        bool | None,
+        Field(
+            alias="requireHttpChecksum",
+            description="Reject a Hugging Face HTTP download that exposes no usable SHA-256 instead of downloading it unverified. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
+    require_secure_transport: Annotated[
+        bool | None,
+        Field(
+            alias="requireSecureTransport",
+            description="Reject plaintext http:// and HTTPS→HTTP downgrades for every HTTP source on this call (loopback exempt); when unset, only Hugging Face transport is hardened. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
     request_id: Annotated[
         str | None,
         Field(
@@ -5772,6 +6205,148 @@ class GetSystemResourcesResponseSampleMemoryTotalBytesFailed(GeneratedBaseModel)
     reason: str | None = None
 
 
+class GetSystemResourcesResponseSampleMemoryProcessUsedBytesSupportedProvenanceScope(
+    Enum
+):
+    system = "system"
+    process = "process"
+    device = "device"
+    budget = "budget"
+    shared_system = "shared-system"
+
+
+class GetSystemResourcesResponseSampleMemoryProcessUsedBytesSupportedProvenance(
+    GeneratedBaseModel
+):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    source: str
+    scope: Annotated[
+        GetSystemResourcesResponseSampleMemoryProcessUsedBytesSupportedProvenanceScope
+        | None,
+        Field(
+            title="GetSystemResourcesResponseSampleMemoryProcessUsedBytesSupportedProvenanceScope"
+        ),
+    ] = None
+
+
+class GetSystemResourcesResponseSampleMemoryProcessUsedBytesSupported(
+    GeneratedBaseModel
+):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: Literal["supported"] = "supported"
+    value: Annotated[float, Field(ge=0.0)]
+    provenance: Annotated[
+        GetSystemResourcesResponseSampleMemoryProcessUsedBytesSupportedProvenance,
+        Field(
+            title="GetSystemResourcesResponseSampleMemoryProcessUsedBytesSupportedProvenance"
+        ),
+    ]
+
+
+class GetSystemResourcesResponseSampleMemoryProcessUsedBytesUnavailable(
+    GeneratedBaseModel
+):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: Literal["unavailable"] = "unavailable"
+    reason: str | None = None
+
+
+class GetSystemResourcesResponseSampleMemoryProcessUsedBytesUnverified(
+    GeneratedBaseModel
+):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: Literal["unverified"] = "unverified"
+    reason: str | None = None
+
+
+class GetSystemResourcesResponseSampleMemoryProcessUsedBytesFailed(GeneratedBaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: Literal["failed"] = "failed"
+    reason: str | None = None
+
+
+class GetSystemResourcesResponseSampleMemoryProcessAvailableBytesSupportedProvenanceScope(
+    Enum
+):
+    system = "system"
+    process = "process"
+    device = "device"
+    budget = "budget"
+    shared_system = "shared-system"
+
+
+class GetSystemResourcesResponseSampleMemoryProcessAvailableBytesSupportedProvenance(
+    GeneratedBaseModel
+):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    source: str
+    scope: Annotated[
+        GetSystemResourcesResponseSampleMemoryProcessAvailableBytesSupportedProvenanceScope
+        | None,
+        Field(
+            title="GetSystemResourcesResponseSampleMemoryProcessAvailableBytesSupportedProvenanceScope"
+        ),
+    ] = None
+
+
+class GetSystemResourcesResponseSampleMemoryProcessAvailableBytesSupported(
+    GeneratedBaseModel
+):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: Literal["supported"] = "supported"
+    value: Annotated[float, Field(ge=0.0)]
+    provenance: Annotated[
+        GetSystemResourcesResponseSampleMemoryProcessAvailableBytesSupportedProvenance,
+        Field(
+            title="GetSystemResourcesResponseSampleMemoryProcessAvailableBytesSupportedProvenance"
+        ),
+    ]
+
+
+class GetSystemResourcesResponseSampleMemoryProcessAvailableBytesUnavailable(
+    GeneratedBaseModel
+):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: Literal["unavailable"] = "unavailable"
+    reason: str | None = None
+
+
+class GetSystemResourcesResponseSampleMemoryProcessAvailableBytesUnverified(
+    GeneratedBaseModel
+):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: Literal["unverified"] = "unverified"
+    reason: str | None = None
+
+
+class GetSystemResourcesResponseSampleMemoryProcessAvailableBytesFailed(
+    GeneratedBaseModel
+):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: Literal["failed"] = "failed"
+    reason: str | None = None
+
+
 class GetSystemResourcesResponseSampleMemory(GeneratedBaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5789,6 +6364,26 @@ class GetSystemResourcesResponseSampleMemory(GeneratedBaseModel):
         | GetSystemResourcesResponseSampleMemoryTotalBytesUnverified
         | GetSystemResourcesResponseSampleMemoryTotalBytesFailed,
         Field(alias="totalBytes"),
+    ]
+    process_used_bytes: Annotated[
+        GetSystemResourcesResponseSampleMemoryProcessUsedBytesSupported
+        | GetSystemResourcesResponseSampleMemoryProcessUsedBytesUnavailable
+        | GetSystemResourcesResponseSampleMemoryProcessUsedBytesUnverified
+        | GetSystemResourcesResponseSampleMemoryProcessUsedBytesFailed,
+        Field(
+            alias="processUsedBytes",
+            description="This process’s resident footprint (RSS). Process-scoped, unlike usedBytes.",
+        ),
+    ]
+    process_available_bytes: Annotated[
+        GetSystemResourcesResponseSampleMemoryProcessAvailableBytesSupported
+        | GetSystemResourcesResponseSampleMemoryProcessAvailableBytesUnavailable
+        | GetSystemResourcesResponseSampleMemoryProcessAvailableBytesUnverified
+        | GetSystemResourcesResponseSampleMemoryProcessAvailableBytesFailed,
+        Field(
+            alias="processAvailableBytes",
+            description="How much more this process may allocate before the OS intervenes. On iOS this is os_proc_available_memory() — the limit jetsam enforces. Unavailable where no per-process limit is exposed.",
+        ),
     ]
 
 
@@ -6465,6 +7060,14 @@ class Predict(RootModel[int]):
     ]
 
 
+class LoadModelSrcRequestLlamacppCompletionModelConfigLoadMode(Enum):
+    none = "none"
+    mmap = "mmap"
+    mlock = "mlock"
+    mmap_mlock = "mmap+mlock"
+    dio = "dio"
+
+
 class LoadModelSrcRequestLlamacppCompletionModelConfigVerbosity(Enum):
     number_0 = 0
     number_1 = 1
@@ -6492,6 +7095,13 @@ class LoadModelSrcRequestLlamacppCompletionModelConfigSplitMode(Enum):
     none = "none"
     layer = "layer"
     row = "row"
+    tensor = "tensor"
+
+
+class LoadModelSrcRequestLlamacppCompletionModelConfigFlashAttn(Enum):
+    on = "on"
+    off = "off"
+    auto = "auto"
 
 
 class LoadModelSrcRequestLlamacppCompletionModelConfigProjectionModelSrcAddon(Enum):
@@ -6525,21 +7135,81 @@ class LoadModelSrcRequestLlamacppCompletionModelConfigProjectionModelSrcAddon(En
 class LoadModelSrcRequestLlamacppCompletionModelConfigProjectionModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestLlamacppCompletionModelConfigProjectionModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestLlamacppCompletionModelConfigImageTileMode(Enum):
@@ -6614,9 +7284,12 @@ class LoadModelSrcRequestLlamacppCompletionModelConfig(GeneratedBaseModel):
             description="Seeds conversation history on the JS side only; never forwarded to the addon. Default `'You are a helpful assistant.'`"
         ),
     ] = None
-    no_mmap: Annotated[
-        bool | None,
-        Field(description="Disable memory-mapped model loading. Default false."),
+    load_mode: Annotated[
+        LoadModelSrcRequestLlamacppCompletionModelConfigLoadMode | None,
+        Field(
+            description="Model loading mode: `'none'`, `'mmap'`, `'mlock'`, `'mmap+mlock'`, or `'dio'`. Unset uses the addon's default (`'mmap'`).",
+            title="LoadModelSrcRequestLlamacppCompletionModelConfigLoadMode",
+        ),
     ] = None
     verbosity: Annotated[
         LoadModelSrcRequestLlamacppCompletionModelConfigVerbosity | None,
@@ -6647,12 +7320,6 @@ class LoadModelSrcRequestLlamacppCompletionModelConfig(GeneratedBaseModel):
         list[str] | None,
         Field(
             description="Strings that stop generation when produced (forwarded to the addon as `reverse_prompt`)."
-        ),
-    ] = None
-    n_discarded: Annotated[
-        float | None,
-        Field(
-            description="Tokens to discard from the front of the context when it fills (sliding window); `0` (default) disables sliding. In batch mode clamped to the per-slot window (`ctx_size / parallel`)."
         ),
     ] = None
     parallel: Annotated[
@@ -6694,8 +7361,16 @@ class LoadModelSrcRequestLlamacppCompletionModelConfig(GeneratedBaseModel):
         LoadModelSrcRequestLlamacppCompletionModelConfigSplitMode | None,
         Field(
             alias="split-mode",
-            description="How to split the model across GPUs: `'none'` (default, single GPU), `'layer'` (pipeline parallelism), or `'row'` (tensor parallelism).",
+            description="How to split the model across GPUs: `'none'` (default, single GPU), `'layer'` (pipeline parallelism), `'row'` (legacy; degrades to `'layer'`), or `'tensor'` (EXPERIMENTAL tensor parallelism across all visible GPUs; desktop-only, requires flash attention, and disables auto-fit, so set `ctx_size` explicitly).",
             title="LoadModelSrcRequestLlamacppCompletionModelConfigSplitMode",
+        ),
+    ] = None
+    flash_attn: Annotated[
+        LoadModelSrcRequestLlamacppCompletionModelConfigFlashAttn | None,
+        Field(
+            alias="flash-attn",
+            description="Flash attention: `'on'`, `'off'`, or `'auto'`. With `'auto'`, the backend decides. When unset, the addon defaults to `'off'` for BitNet models and `'on'` for other inference workloads. An explicit value overrides the BitNet default. Finetuning enforces its own setting. `'off'` is incompatible with `'split-mode': 'tensor'`.",
+            title="LoadModelSrcRequestLlamacppCompletionModelConfigFlashAttn",
         ),
     ] = None
     tensor_split: Annotated[
@@ -6755,7 +7430,13 @@ class LoadModelSrcRequestLlamacppCompletion(GeneratedBaseModel):
         extra="forbid",
     )
     type: Literal["loadModel"] = "loadModel"
-    model_src: Annotated[str, Field(alias="modelSrc")]
+    model_src: Annotated[
+        str,
+        Field(
+            alias="modelSrc",
+            description="The model to load: a registry model constant for a built-in model, or a model source — a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI — for HTTP, local, or P2P models.",
+        ),
+    ]
     model_name: Annotated[str | None, Field(alias="modelName")] = None
     with_progress: Annotated[bool | None, Field(alias="withProgress")] = None
     seed: bool | None = None
@@ -6764,6 +7445,20 @@ class LoadModelSrcRequestLlamacppCompletion(GeneratedBaseModel):
         Field(
             alias="fallbackSrc",
             description="Alternate source — an HTTP URL or local file path — used to load a built-in registry model when it cannot be downloaded from the registry. The bytes are validated against the model checksum before use.",
+        ),
+    ] = None
+    require_http_checksum: Annotated[
+        bool | None,
+        Field(
+            alias="requireHttpChecksum",
+            description="Reject a Hugging Face HTTP download that exposes no usable SHA-256 instead of downloading it unverified. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
+    require_secure_transport: Annotated[
+        bool | None,
+        Field(
+            alias="requireSecureTransport",
+            description="Reject plaintext http:// and HTTPS→HTTP downgrades for every HTTP source on this call (loopback exempt); when unset, only Hugging Face transport is hardened. Overrides the engine config for this call; defaults to the config value (false).",
         ),
     ] = None
     request_id: Annotated[
@@ -6888,21 +7583,81 @@ class LoadModelSrcRequestWhispercppTranscriptionModelConfigVadModelSrcAddon(Enum
 class LoadModelSrcRequestWhispercppTranscriptionModelConfigVadModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestWhispercppTranscriptionModelConfigVadModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestWhispercppTranscriptionModelConfig(GeneratedBaseModel):
@@ -7144,7 +7899,13 @@ class LoadModelSrcRequestWhispercppTranscription(GeneratedBaseModel):
         extra="forbid",
     )
     type: Literal["loadModel"] = "loadModel"
-    model_src: Annotated[str, Field(alias="modelSrc")]
+    model_src: Annotated[
+        str,
+        Field(
+            alias="modelSrc",
+            description="The model to load: a registry model constant for a built-in model, or a model source — a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI — for HTTP, local, or P2P models.",
+        ),
+    ]
     model_name: Annotated[str | None, Field(alias="modelName")] = None
     with_progress: Annotated[bool | None, Field(alias="withProgress")] = None
     seed: bool | None = None
@@ -7153,6 +7914,20 @@ class LoadModelSrcRequestWhispercppTranscription(GeneratedBaseModel):
         Field(
             alias="fallbackSrc",
             description="Alternate source — an HTTP URL or local file path — used to load a built-in registry model when it cannot be downloaded from the registry. The bytes are validated against the model checksum before use.",
+        ),
+    ] = None
+    require_http_checksum: Annotated[
+        bool | None,
+        Field(
+            alias="requireHttpChecksum",
+            description="Reject a Hugging Face HTTP download that exposes no usable SHA-256 instead of downloading it unverified. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
+    require_secure_transport: Annotated[
+        bool | None,
+        Field(
+            alias="requireSecureTransport",
+            description="Reject plaintext http:// and HTTPS→HTTP downgrades for every HTTP source on this call (loopback exempt); when unset, only Hugging Face transport is hardened. Overrides the engine config for this call; defaults to the config value (false).",
         ),
     ] = None
     request_id: Annotated[
@@ -7344,21 +8119,81 @@ class LoadModelSrcRequestBciWhispercppTranscriptionModelConfigEmbedderModelSrcAd
 class LoadModelSrcRequestBciWhispercppTranscriptionModelConfigEmbedderModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestBciWhispercppTranscriptionModelConfigEmbedderModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestBciWhispercppTranscriptionModelConfig(GeneratedBaseModel):
@@ -7413,7 +8248,13 @@ class LoadModelSrcRequestBciWhispercppTranscription(GeneratedBaseModel):
         extra="forbid",
     )
     type: Literal["loadModel"] = "loadModel"
-    model_src: Annotated[str, Field(alias="modelSrc")]
+    model_src: Annotated[
+        str,
+        Field(
+            alias="modelSrc",
+            description="The model to load: a registry model constant for a built-in model, or a model source — a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI — for HTTP, local, or P2P models.",
+        ),
+    ]
     model_name: Annotated[str | None, Field(alias="modelName")] = None
     with_progress: Annotated[bool | None, Field(alias="withProgress")] = None
     seed: bool | None = None
@@ -7422,6 +8263,20 @@ class LoadModelSrcRequestBciWhispercppTranscription(GeneratedBaseModel):
         Field(
             alias="fallbackSrc",
             description="Alternate source — an HTTP URL or local file path — used to load a built-in registry model when it cannot be downloaded from the registry. The bytes are validated against the model checksum before use.",
+        ),
+    ] = None
+    require_http_checksum: Annotated[
+        bool | None,
+        Field(
+            alias="requireHttpChecksum",
+            description="Reject a Hugging Face HTTP download that exposes no usable SHA-256 instead of downloading it unverified. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
+    require_secure_transport: Annotated[
+        bool | None,
+        Field(
+            alias="requireSecureTransport",
+            description="Reject plaintext http:// and HTTPS→HTTP downgrades for every HTTP source on this call (loopback exempt); when unset, only Hugging Face transport is hardened. Overrides the engine config for this call; defaults to the config value (false).",
         ),
     ] = None
     request_id: Annotated[
@@ -7656,7 +8511,13 @@ class LoadModelSrcRequestParakeetTranscription(GeneratedBaseModel):
         extra="forbid",
     )
     type: Literal["loadModel"] = "loadModel"
-    model_src: Annotated[str, Field(alias="modelSrc")]
+    model_src: Annotated[
+        str,
+        Field(
+            alias="modelSrc",
+            description="The model to load: a registry model constant for a built-in model, or a model source — a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI — for HTTP, local, or P2P models.",
+        ),
+    ]
     model_name: Annotated[str | None, Field(alias="modelName")] = None
     with_progress: Annotated[bool | None, Field(alias="withProgress")] = None
     seed: bool | None = None
@@ -7665,6 +8526,20 @@ class LoadModelSrcRequestParakeetTranscription(GeneratedBaseModel):
         Field(
             alias="fallbackSrc",
             description="Alternate source — an HTTP URL or local file path — used to load a built-in registry model when it cannot be downloaded from the registry. The bytes are validated against the model checksum before use.",
+        ),
+    ] = None
+    require_http_checksum: Annotated[
+        bool | None,
+        Field(
+            alias="requireHttpChecksum",
+            description="Reject a Hugging Face HTTP download that exposes no usable SHA-256 instead of downloading it unverified. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
+    require_secure_transport: Annotated[
+        bool | None,
+        Field(
+            alias="requireSecureTransport",
+            description="Reject plaintext http:// and HTTPS→HTTP downgrades for every HTTP source on this call (loopback exempt); when unset, only Hugging Face transport is hardened. Overrides the engine config for this call; defaults to the config value (false).",
         ),
     ] = None
     request_id: Annotated[
@@ -7829,7 +8704,13 @@ class LoadModelSrcRequestLlamacppEmbedding(GeneratedBaseModel):
         extra="forbid",
     )
     type: Literal["loadModel"] = "loadModel"
-    model_src: Annotated[str, Field(alias="modelSrc")]
+    model_src: Annotated[
+        str,
+        Field(
+            alias="modelSrc",
+            description="The model to load: a registry model constant for a built-in model, or a model source — a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI — for HTTP, local, or P2P models.",
+        ),
+    ]
     model_name: Annotated[str | None, Field(alias="modelName")] = None
     with_progress: Annotated[bool | None, Field(alias="withProgress")] = None
     seed: bool | None = None
@@ -7838,6 +8719,20 @@ class LoadModelSrcRequestLlamacppEmbedding(GeneratedBaseModel):
         Field(
             alias="fallbackSrc",
             description="Alternate source — an HTTP URL or local file path — used to load a built-in registry model when it cannot be downloaded from the registry. The bytes are validated against the model checksum before use.",
+        ),
+    ] = None
+    require_http_checksum: Annotated[
+        bool | None,
+        Field(
+            alias="requireHttpChecksum",
+            description="Reject a Hugging Face HTTP download that exposes no usable SHA-256 instead of downloading it unverified. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
+    require_secure_transport: Annotated[
+        bool | None,
+        Field(
+            alias="requireSecureTransport",
+            description="Reject plaintext http:// and HTTPS→HTTP downgrades for every HTTP source on this call (loopback exempt); when unset, only Hugging Face transport is hardened. Overrides the engine config for this call; defaults to the config value (false).",
         ),
     ] = None
     request_id: Annotated[
@@ -8008,21 +8903,81 @@ class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotSrcVocabSrcAddon(En
 class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotSrcVocabSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestNmtcppTranslationModelConfigBergamotSrcVocabSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotDstVocabSrcAddon(Enum):
@@ -8056,21 +9011,81 @@ class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotDstVocabSrcAddon(En
 class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotDstVocabSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestNmtcppTranslationModelConfigBergamotDstVocabSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotPivotModelMode(Enum):
@@ -8110,21 +9125,81 @@ class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotPivotModelModelSrcA
 class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotPivotModelModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestNmtcppTranslationModelConfigBergamotPivotModelModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotPivotModelSrcVocabSrcAddon(
@@ -8160,21 +9235,81 @@ class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotPivotModelSrcVocabS
 class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotPivotModelSrcVocabSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestNmtcppTranslationModelConfigBergamotPivotModelSrcVocabSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotPivotModelDstVocabSrcAddon(
@@ -8210,21 +9345,81 @@ class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotPivotModelDstVocabS
 class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotPivotModelDstVocabSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestNmtcppTranslationModelConfigBergamotPivotModelDstVocabSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestNmtcppTranslationModelConfigBergamotPivotModel(
@@ -8521,7 +9716,13 @@ class LoadModelSrcRequestNmtcppTranslation(GeneratedBaseModel):
         extra="forbid",
     )
     type: Literal["loadModel"] = "loadModel"
-    model_src: Annotated[str, Field(alias="modelSrc")]
+    model_src: Annotated[
+        str,
+        Field(
+            alias="modelSrc",
+            description="The model to load: a registry model constant for a built-in model, or a model source — a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI — for HTTP, local, or P2P models.",
+        ),
+    ]
     model_name: Annotated[str | None, Field(alias="modelName")] = None
     with_progress: Annotated[bool | None, Field(alias="withProgress")] = None
     seed: bool | None = None
@@ -8530,6 +9731,20 @@ class LoadModelSrcRequestNmtcppTranslation(GeneratedBaseModel):
         Field(
             alias="fallbackSrc",
             description="Alternate source — an HTTP URL or local file path — used to load a built-in registry model when it cannot be downloaded from the registry. The bytes are validated against the model checksum before use.",
+        ),
+    ] = None
+    require_http_checksum: Annotated[
+        bool | None,
+        Field(
+            alias="requireHttpChecksum",
+            description="Reject a Hugging Face HTTP download that exposes no usable SHA-256 instead of downloading it unverified. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
+    require_secure_transport: Annotated[
+        bool | None,
+        Field(
+            alias="requireSecureTransport",
+            description="Reject plaintext http:// and HTTPS→HTTP downgrades for every HTTP source on this call (loopback exempt); when unset, only Hugging Face transport is hardened. Overrides the engine config for this call; defaults to the config value (false).",
         ),
     ] = None
     request_id: Annotated[
@@ -8605,21 +9820,81 @@ class LoadModelSrcRequestTtsGgmlModelConfigChatterboxS3genModelSrcAddon(Enum):
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigChatterboxS3genModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigChatterboxS3genModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigChatterboxReferenceAudioSrcAddon(Enum):
@@ -8653,21 +9928,81 @@ class LoadModelSrcRequestTtsGgmlModelConfigChatterboxReferenceAudioSrcAddon(Enum
 class LoadModelSrcRequestTtsGgmlModelConfigChatterboxReferenceAudioSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigChatterboxReferenceAudioSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigChatterboxMecabDictSrcAddon(Enum):
@@ -8699,21 +10034,81 @@ class LoadModelSrcRequestTtsGgmlModelConfigChatterboxMecabDictSrcAddon(Enum):
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigChatterboxMecabDictSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigChatterboxMecabDictSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigChatterboxCangjieTsvSrcAddon(Enum):
@@ -8745,21 +10140,81 @@ class LoadModelSrcRequestTtsGgmlModelConfigChatterboxCangjieTsvSrcAddon(Enum):
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigChatterboxCangjieTsvSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigChatterboxCangjieTsvSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigChatterboxLavasrEnhancerModelSrcAddon(Enum):
@@ -8793,21 +10248,81 @@ class LoadModelSrcRequestTtsGgmlModelConfigChatterboxLavasrEnhancerModelSrcAddon
 class LoadModelSrcRequestTtsGgmlModelConfigChatterboxLavasrEnhancerModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigChatterboxLavasrEnhancerModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigChatterboxLavasrDenoiserModelSrcAddon(Enum):
@@ -8841,21 +10356,81 @@ class LoadModelSrcRequestTtsGgmlModelConfigChatterboxLavasrDenoiserModelSrcAddon
 class LoadModelSrcRequestTtsGgmlModelConfigChatterboxLavasrDenoiserModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigChatterboxLavasrDenoiserModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigChatterbox(GeneratedBaseModel):
@@ -8886,7 +10461,7 @@ class LoadModelSrcRequestTtsGgmlModelConfigChatterbox(GeneratedBaseModel):
         bool | None,
         Field(
             alias="useGPU",
-            description="Route inference through a GPU backend (Metal / Vulkan / OpenCL) when available. Default false.",
+            description="Route inference through a GPU backend (Metal / CUDA / Vulkan / OpenCL) when available. Default false.",
         ),
     ] = None
     stream_chunk_tokens: Annotated[
@@ -9089,21 +10664,81 @@ class LoadModelSrcRequestTtsGgmlModelConfigSupertonicLavasrEnhancerModelSrcAddon
 class LoadModelSrcRequestTtsGgmlModelConfigSupertonicLavasrEnhancerModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigSupertonicLavasrEnhancerModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigSupertonicLavasrDenoiserModelSrcAddon(Enum):
@@ -9137,21 +10772,81 @@ class LoadModelSrcRequestTtsGgmlModelConfigSupertonicLavasrDenoiserModelSrcAddon
 class LoadModelSrcRequestTtsGgmlModelConfigSupertonicLavasrDenoiserModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigSupertonicLavasrDenoiserModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigSupertonic(GeneratedBaseModel):
@@ -9190,7 +10885,7 @@ class LoadModelSrcRequestTtsGgmlModelConfigSupertonic(GeneratedBaseModel):
         bool | None,
         Field(
             alias="useGPU",
-            description="Route inference through a GPU backend (Metal / Vulkan / OpenCL) when available. Default false.",
+            description="Route inference through a GPU backend (Metal / CUDA / Vulkan / OpenCL) when available. Default false.",
         ),
     ] = None
     output_sample_rate: Annotated[
@@ -9363,7 +11058,7 @@ class LoadModelSrcRequestTtsGgmlModelConfigParler(GeneratedBaseModel):
         bool | None,
         Field(
             alias="useGPU",
-            description="Route inference through a GPU backend (Metal / Vulkan / OpenCL) when available. Default false.",
+            description="Route inference through a GPU backend (Metal / CUDA / Vulkan / OpenCL) when available. Default false.",
         ),
     ] = None
     output_sample_rate: Annotated[
@@ -9527,15 +11222,24 @@ class LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3Instruct(GeneratedBaseModel
     )
     dialect: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3InstructDialect | None,
-        Field(title="LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3InstructDialect"),
+        Field(
+            description="Chinese dialect to render (e.g. `cantonese`, `sichuan`).",
+            title="LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3InstructDialect",
+        ),
     ] = None
     volume: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3InstructVolume | None,
-        Field(title="LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3InstructVolume"),
+        Field(
+            description="Speaking volume: `loud` or `soft`.",
+            title="LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3InstructVolume",
+        ),
     ] = None
     style: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3InstructStyle | None,
-        Field(title="LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3InstructStyle"),
+        Field(
+            description="Speaking style: `peppa` or `robot`.",
+            title="LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3InstructStyle",
+        ),
     ] = None
 
 
@@ -9570,21 +11274,81 @@ class LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3LavasrEnhancerModelSrcAddon
 class LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3LavasrEnhancerModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3LavasrEnhancerModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3LavasrDenoiserModelSrcAddon(Enum):
@@ -9618,21 +11382,81 @@ class LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3LavasrDenoiserModelSrcAddon
 class LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3LavasrDenoiserModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3LavasrDenoiserModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3(GeneratedBaseModel):
@@ -9667,7 +11491,7 @@ class LoadModelSrcRequestTtsGgmlModelConfigCosyvoice3(GeneratedBaseModel):
         bool | None,
         Field(
             alias="useGPU",
-            description="Route inference through a GPU backend (Metal / Vulkan / OpenCL) when available. Default false.",
+            description="Route inference through a GPU backend (Metal / CUDA / Vulkan / OpenCL) when available. Default false.",
         ),
     ] = None
     output_sample_rate: Annotated[
@@ -9773,21 +11597,81 @@ class LoadModelSrcRequestTtsGgmlModelConfigAudio8Audio8CodecDecoderModelSrcAddon
 class LoadModelSrcRequestTtsGgmlModelConfigAudio8Audio8CodecDecoderModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigAudio8Audio8CodecDecoderModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigAudio8Audio8CodecEncoderModelSrcAddon(Enum):
@@ -9821,21 +11705,81 @@ class LoadModelSrcRequestTtsGgmlModelConfigAudio8Audio8CodecEncoderModelSrcAddon
 class LoadModelSrcRequestTtsGgmlModelConfigAudio8Audio8CodecEncoderModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigAudio8Audio8CodecEncoderModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigAudio8ReferenceAudioSrcAddon(Enum):
@@ -9867,21 +11811,81 @@ class LoadModelSrcRequestTtsGgmlModelConfigAudio8ReferenceAudioSrcAddon(Enum):
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigAudio8ReferenceAudioSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestTtsGgmlModelConfigAudio8ReferenceAudioSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestTtsGgmlModelConfigAudio8(GeneratedBaseModel):
@@ -9940,7 +11944,7 @@ class LoadModelSrcRequestTtsGgmlModelConfigAudio8(GeneratedBaseModel):
         bool | None,
         Field(
             alias="useGPU",
-            description="Route inference through a GPU backend (Metal / Vulkan / OpenCL) when available. Default false.",
+            description="Route inference through a GPU backend (Metal / CUDA / Vulkan / OpenCL) when available. Default false.",
         ),
     ] = None
     output_sample_rate: Annotated[
@@ -10007,7 +12011,13 @@ class LoadModelSrcRequestTtsGgml(GeneratedBaseModel):
         extra="forbid",
     )
     type: Literal["loadModel"] = "loadModel"
-    model_src: Annotated[str, Field(alias="modelSrc")]
+    model_src: Annotated[
+        str,
+        Field(
+            alias="modelSrc",
+            description="The model to load: a registry model constant for a built-in model, or a model source — a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI — for HTTP, local, or P2P models.",
+        ),
+    ]
     model_name: Annotated[str | None, Field(alias="modelName")] = None
     with_progress: Annotated[bool | None, Field(alias="withProgress")] = None
     seed: bool | None = None
@@ -10016,6 +12026,20 @@ class LoadModelSrcRequestTtsGgml(GeneratedBaseModel):
         Field(
             alias="fallbackSrc",
             description="Alternate source — an HTTP URL or local file path — used to load a built-in registry model when it cannot be downloaded from the registry. The bytes are validated against the model checksum before use.",
+        ),
+    ] = None
+    require_http_checksum: Annotated[
+        bool | None,
+        Field(
+            alias="requireHttpChecksum",
+            description="Reject a Hugging Face HTTP download that exposes no usable SHA-256 instead of downloading it unverified. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
+    require_secure_transport: Annotated[
+        bool | None,
+        Field(
+            alias="requireSecureTransport",
+            description="Reject plaintext http:// and HTTPS→HTTP downgrades for every HTTP source on this call (loopback exempt); when unset, only Hugging Face transport is hardened. Overrides the engine config for this call; defaults to the config value (false).",
         ),
     ] = None
     request_id: Annotated[
@@ -10078,21 +12102,81 @@ class LoadModelSrcRequestGgmlOcrModelConfigDetectorModelSrcAddon(Enum):
 
 
 class LoadModelSrcRequestGgmlOcrModelConfigDetectorModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestGgmlOcrModelConfigDetectorModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestGgmlOcrModelConfig(GeneratedBaseModel):
@@ -10189,7 +12273,13 @@ class LoadModelSrcRequestGgmlOcr(GeneratedBaseModel):
         extra="forbid",
     )
     type: Literal["loadModel"] = "loadModel"
-    model_src: Annotated[str, Field(alias="modelSrc")]
+    model_src: Annotated[
+        str,
+        Field(
+            alias="modelSrc",
+            description="The model to load: a registry model constant for a built-in model, or a model source — a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI — for HTTP, local, or P2P models.",
+        ),
+    ]
     model_name: Annotated[str | None, Field(alias="modelName")] = None
     with_progress: Annotated[bool | None, Field(alias="withProgress")] = None
     seed: bool | None = None
@@ -10198,6 +12288,20 @@ class LoadModelSrcRequestGgmlOcr(GeneratedBaseModel):
         Field(
             alias="fallbackSrc",
             description="Alternate source — an HTTP URL or local file path — used to load a built-in registry model when it cannot be downloaded from the registry. The bytes are validated against the model checksum before use.",
+        ),
+    ] = None
+    require_http_checksum: Annotated[
+        bool | None,
+        Field(
+            alias="requireHttpChecksum",
+            description="Reject a Hugging Face HTTP download that exposes no usable SHA-256 instead of downloading it unverified. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
+    require_secure_transport: Annotated[
+        bool | None,
+        Field(
+            alias="requireSecureTransport",
+            description="Reject plaintext http:// and HTTPS→HTTP downgrades for every HTTP source on this call (loopback exempt); when unset, only Hugging Face transport is hardened. Overrides the engine config for this call; defaults to the config value (false).",
         ),
     ] = None
     request_id: Annotated[
@@ -10316,21 +12420,81 @@ class LoadModelSrcRequestSdcppGenerationModelConfigClipLModelSrcAddon(Enum):
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigClipLModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestSdcppGenerationModelConfigClipLModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigClipGModelSrcAddon(Enum):
@@ -10362,21 +12526,81 @@ class LoadModelSrcRequestSdcppGenerationModelConfigClipGModelSrcAddon(Enum):
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigClipGModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestSdcppGenerationModelConfigClipGModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigT5XxlModelSrcAddon(Enum):
@@ -10408,21 +12632,81 @@ class LoadModelSrcRequestSdcppGenerationModelConfigT5XxlModelSrcAddon(Enum):
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigT5XxlModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestSdcppGenerationModelConfigT5XxlModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigLlmModelSrcAddon(Enum):
@@ -10454,21 +12738,81 @@ class LoadModelSrcRequestSdcppGenerationModelConfigLlmModelSrcAddon(Enum):
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigLlmModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestSdcppGenerationModelConfigLlmModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigVaeModelSrcAddon(Enum):
@@ -10500,21 +12844,81 @@ class LoadModelSrcRequestSdcppGenerationModelConfigVaeModelSrcAddon(Enum):
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigVaeModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestSdcppGenerationModelConfigVaeModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigHighNoiseDiffusionModelSrcAddon(
@@ -10550,21 +12954,81 @@ class LoadModelSrcRequestSdcppGenerationModelConfigHighNoiseDiffusionModelSrcAdd
 class LoadModelSrcRequestSdcppGenerationModelConfigHighNoiseDiffusionModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestSdcppGenerationModelConfigHighNoiseDiffusionModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigUncondModelSrcAddon(Enum):
@@ -10596,21 +13060,81 @@ class LoadModelSrcRequestSdcppGenerationModelConfigUncondModelSrcAddon(Enum):
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigUncondModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestSdcppGenerationModelConfigUncondModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigClipVisionModelSrcAddon(Enum):
@@ -10644,21 +13168,81 @@ class LoadModelSrcRequestSdcppGenerationModelConfigClipVisionModelSrcAddon(Enum)
 class LoadModelSrcRequestSdcppGenerationModelConfigClipVisionModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestSdcppGenerationModelConfigClipVisionModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigAudioVaeModelSrcAddon(Enum):
@@ -10690,21 +13274,81 @@ class LoadModelSrcRequestSdcppGenerationModelConfigAudioVaeModelSrcAddon(Enum):
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigAudioVaeModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestSdcppGenerationModelConfigAudioVaeModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigEmbeddingsConnectorsModelSrcAddon(
@@ -10740,21 +13384,81 @@ class LoadModelSrcRequestSdcppGenerationModelConfigEmbeddingsConnectorsModelSrcA
 class LoadModelSrcRequestSdcppGenerationModelConfigEmbeddingsConnectorsModelSrc(
     GeneratedBaseModel
 ):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestSdcppGenerationModelConfigEmbeddingsConnectorsModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigTaehvModelSrcAddon(Enum):
@@ -10786,21 +13490,81 @@ class LoadModelSrcRequestSdcppGenerationModelConfigTaehvModelSrcAddon(Enum):
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigTaehvModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestSdcppGenerationModelConfigTaehvModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigSceneSrcAddon(Enum):
@@ -10832,21 +13596,81 @@ class LoadModelSrcRequestSdcppGenerationModelConfigSceneSrcAddon(Enum):
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigSceneSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestSdcppGenerationModelConfigSceneSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class Threads(RootModel[int]):
@@ -10954,21 +13778,81 @@ class LoadModelSrcRequestSdcppGenerationModelConfigUpscalerModelSrcAddon(Enum):
 
 
 class LoadModelSrcRequestSdcppGenerationModelConfigUpscalerModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
         LoadModelSrcRequestSdcppGenerationModelConfigUpscalerModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class Threads1(RootModel[int]):
@@ -11239,7 +14123,13 @@ class LoadModelSrcRequestSdcppGeneration(GeneratedBaseModel):
         extra="forbid",
     )
     type: Literal["loadModel"] = "loadModel"
-    model_src: Annotated[str, Field(alias="modelSrc")]
+    model_src: Annotated[
+        str,
+        Field(
+            alias="modelSrc",
+            description="The model to load: a registry model constant for a built-in model, or a model source — a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI — for HTTP, local, or P2P models.",
+        ),
+    ]
     model_name: Annotated[str | None, Field(alias="modelName")] = None
     with_progress: Annotated[bool | None, Field(alias="withProgress")] = None
     seed: bool | None = None
@@ -11248,6 +14138,20 @@ class LoadModelSrcRequestSdcppGeneration(GeneratedBaseModel):
         Field(
             alias="fallbackSrc",
             description="Alternate source — an HTTP URL or local file path — used to load a built-in registry model when it cannot be downloaded from the registry. The bytes are validated against the model checksum before use.",
+        ),
+    ] = None
+    require_http_checksum: Annotated[
+        bool | None,
+        Field(
+            alias="requireHttpChecksum",
+            description="Reject a Hugging Face HTTP download that exposes no usable SHA-256 instead of downloading it unverified. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
+    require_secure_transport: Annotated[
+        bool | None,
+        Field(
+            alias="requireSecureTransport",
+            description="Reject plaintext http:// and HTTPS→HTTP downgrades for every HTTP source on this call (loopback exempt); when unset, only Hugging Face transport is hardened. Overrides the engine config for this call; defaults to the config value (false).",
         ),
     ] = None
     request_id: Annotated[
@@ -11269,7 +14173,7 @@ class LoadModelSrcRequestSdcppGeneration(GeneratedBaseModel):
     ] = None
 
 
-class LoadModelSrcRequestAudiogenGgmlModelConfigTextEncModelSrcAddon(Enum):
+class LoadModelSrcRequestAudiogenGgmlModelConfigAcestepTextEncModelSrcAddon(Enum):
     llamacpp_completion = "llamacpp-completion"
     whispercpp_transcription = "whispercpp-transcription"
     bci_whispercpp_transcription = "bci-whispercpp-transcription"
@@ -11297,25 +14201,87 @@ class LoadModelSrcRequestAudiogenGgmlModelConfigTextEncModelSrcAddon(Enum):
     classification = "classification"
 
 
-class LoadModelSrcRequestAudiogenGgmlModelConfigTextEncModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
-        LoadModelSrcRequestAudiogenGgmlModelConfigTextEncModelSrcAddon
+class LoadModelSrcRequestAudiogenGgmlModelConfigAcestepTextEncModelSrc(
+    GeneratedBaseModel
+):
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
+        LoadModelSrcRequestAudiogenGgmlModelConfigAcestepTextEncModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
-class LoadModelSrcRequestAudiogenGgmlModelConfigLmModelSrcAddon(Enum):
+class LoadModelSrcRequestAudiogenGgmlModelConfigAcestepLmModelSrcAddon(Enum):
     llamacpp_completion = "llamacpp-completion"
     whispercpp_transcription = "whispercpp-transcription"
     bci_whispercpp_transcription = "bci-whispercpp-transcription"
@@ -11343,25 +14309,85 @@ class LoadModelSrcRequestAudiogenGgmlModelConfigLmModelSrcAddon(Enum):
     classification = "classification"
 
 
-class LoadModelSrcRequestAudiogenGgmlModelConfigLmModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
-        LoadModelSrcRequestAudiogenGgmlModelConfigLmModelSrcAddon
+class LoadModelSrcRequestAudiogenGgmlModelConfigAcestepLmModelSrc(GeneratedBaseModel):
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
+        LoadModelSrcRequestAudiogenGgmlModelConfigAcestepLmModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
-class LoadModelSrcRequestAudiogenGgmlModelConfigDitModelSrcAddon(Enum):
+class LoadModelSrcRequestAudiogenGgmlModelConfigAcestepDitModelSrcAddon(Enum):
     llamacpp_completion = "llamacpp-completion"
     whispercpp_transcription = "whispercpp-transcription"
     bci_whispercpp_transcription = "bci-whispercpp-transcription"
@@ -11389,25 +14415,85 @@ class LoadModelSrcRequestAudiogenGgmlModelConfigDitModelSrcAddon(Enum):
     classification = "classification"
 
 
-class LoadModelSrcRequestAudiogenGgmlModelConfigDitModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
-        LoadModelSrcRequestAudiogenGgmlModelConfigDitModelSrcAddon
+class LoadModelSrcRequestAudiogenGgmlModelConfigAcestepDitModelSrc(GeneratedBaseModel):
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
+        LoadModelSrcRequestAudiogenGgmlModelConfigAcestepDitModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
-class LoadModelSrcRequestAudiogenGgmlModelConfigVaeModelSrcAddon(Enum):
+class LoadModelSrcRequestAudiogenGgmlModelConfigAcestepVaeModelSrcAddon(Enum):
     llamacpp_completion = "llamacpp-completion"
     whispercpp_transcription = "whispercpp-transcription"
     bci_whispercpp_transcription = "bci-whispercpp-transcription"
@@ -11435,58 +14521,97 @@ class LoadModelSrcRequestAudiogenGgmlModelConfigVaeModelSrcAddon(Enum):
     classification = "classification"
 
 
-class LoadModelSrcRequestAudiogenGgmlModelConfigVaeModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: (
-        LoadModelSrcRequestAudiogenGgmlModelConfigVaeModelSrcAddon
+class LoadModelSrcRequestAudiogenGgmlModelConfigAcestepVaeModelSrc(GeneratedBaseModel):
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
+        LoadModelSrcRequestAudiogenGgmlModelConfigAcestepVaeModelSrcAddon
         | Literal["vad"]
-        | None
-    ) = None
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
-class LoadModelSrcRequestAudiogenGgmlModelConfig(GeneratedBaseModel):
+class LoadModelSrcRequestAudiogenGgmlModelConfigAcestep(GeneratedBaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    engine: Annotated[
+        Literal["acestep"] | None,
+        Field(description="Use the ACE-Step music-generation engine."),
+    ] = None
     use_gpu: Annotated[
         bool | None,
         Field(
             alias="useGPU",
             description="Run on a GPU backend (CUDA, Vulkan, Metal, …) when usable; falls back to CPU. `stats.backendDevice` reports the backend actually used.",
-        ),
-    ] = None
-    inference_steps: Annotated[
-        int | None,
-        Field(
-            alias="inferenceSteps",
-            description="DiT sampling steps; `0` (default) lets the engine auto-pick per DiT architecture (turbo 8 / sft 50).",
-            ge=0,
-            le=9007199254740991,
-        ),
-    ] = None
-    shift: Annotated[
-        float | None,
-        Field(
-            description="Flow-matching time-shift; `0` (default) lets the engine auto-pick per DiT architecture (turbo 3.0 / sft 1.0).",
-            ge=0.0,
-        ),
-    ] = None
-    n_gpu_layers: Annotated[
-        int | None,
-        Field(
-            alias="nGpuLayers",
-            description="GPU layers to offload when `useGPU` is set (99 = all). Ignored on CPU.",
-            ge=0,
-            le=9007199254740991,
         ),
     ] = None
     threads: Annotated[
@@ -11505,32 +14630,336 @@ class LoadModelSrcRequestAudiogenGgmlModelConfig(GeneratedBaseModel):
             min_length=1,
         ),
     ] = None
+    inference_steps: Annotated[
+        int | None,
+        Field(
+            alias="inferenceSteps",
+            description="DiT sampling steps; `0` (default) lets ACE-Step auto-pick per DiT architecture (turbo 8 / sft 50).",
+            ge=0,
+            le=9007199254740991,
+        ),
+    ] = None
+    shift: Annotated[
+        float | None,
+        Field(
+            description="Flow-matching time-shift; `0` (default) lets ACE-Step auto-pick per DiT architecture (turbo 3.0 / sft 1.0).",
+            ge=0.0,
+        ),
+    ] = None
+    n_gpu_layers: Annotated[
+        int | None,
+        Field(
+            alias="nGpuLayers",
+            description="ACE-Step GPU layers to offload when `useGPU` is set (99 = all). Ignored on CPU.",
+            ge=0,
+            le=9007199254740991,
+        ),
+    ] = None
     text_enc_model_src: Annotated[
-        str | LoadModelSrcRequestAudiogenGgmlModelConfigTextEncModelSrc,
+        str | LoadModelSrcRequestAudiogenGgmlModelConfigAcestepTextEncModelSrc,
         Field(
             alias="textEncModelSrc",
             description="Text-encoder model source; turns the caption and lyrics into embeddings.",
         ),
     ]
     lm_model_src: Annotated[
-        str | LoadModelSrcRequestAudiogenGgmlModelConfigLmModelSrc,
+        str | LoadModelSrcRequestAudiogenGgmlModelConfigAcestepLmModelSrc,
         Field(
             alias="lmModelSrc",
             description="Language-model source; plans the song structure.",
         ),
     ]
     dit_model_src: Annotated[
-        str | LoadModelSrcRequestAudiogenGgmlModelConfigDitModelSrc,
+        str | LoadModelSrcRequestAudiogenGgmlModelConfigAcestepDitModelSrc,
         Field(
             alias="ditModelSrc",
             description="DiT model source; generates the audio latent (the quality-defining stage).",
         ),
     ]
     vae_model_src: Annotated[
-        str | LoadModelSrcRequestAudiogenGgmlModelConfigVaeModelSrc,
+        str | LoadModelSrcRequestAudiogenGgmlModelConfigAcestepVaeModelSrc,
         Field(
             alias="vaeModelSrc",
             description="VAE model source; decodes the latent into the output waveform.",
+        ),
+    ]
+
+
+class LoadModelSrcRequestAudiogenGgmlModelConfigMinimaxLmModelSrcAddon(Enum):
+    llamacpp_completion = "llamacpp-completion"
+    whispercpp_transcription = "whispercpp-transcription"
+    bci_whispercpp_transcription = "bci-whispercpp-transcription"
+    llamacpp_embedding = "llamacpp-embedding"
+    nmtcpp_translation = "nmtcpp-translation"
+    onnx_tts = "onnx-tts"
+    tts_ggml = "tts-ggml"
+    parakeet_transcription = "parakeet-transcription"
+    ggml_ocr = "ggml-ocr"
+    sdcpp_generation = "sdcpp-generation"
+    audiogen_ggml = "audiogen-ggml"
+    ggml_vla = "ggml-vla"
+    ggml_classification = "ggml-classification"
+    llm = "llm"
+    whisper = "whisper"
+    bci = "bci"
+    embeddings = "embeddings"
+    nmt = "nmt"
+    parakeet = "parakeet"
+    tts = "tts"
+    ocr = "ocr"
+    diffusion = "diffusion"
+    audiogen = "audiogen"
+    vla = "vla"
+    classification = "classification"
+
+
+class LoadModelSrcRequestAudiogenGgmlModelConfigMinimaxLmModelSrc(GeneratedBaseModel):
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
+        LoadModelSrcRequestAudiogenGgmlModelConfigMinimaxLmModelSrcAddon
+        | Literal["vad"]
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
+
+
+class LoadModelSrcRequestAudiogenGgmlModelConfigMinimaxSynthModelSrcAddon(Enum):
+    llamacpp_completion = "llamacpp-completion"
+    whispercpp_transcription = "whispercpp-transcription"
+    bci_whispercpp_transcription = "bci-whispercpp-transcription"
+    llamacpp_embedding = "llamacpp-embedding"
+    nmtcpp_translation = "nmtcpp-translation"
+    onnx_tts = "onnx-tts"
+    tts_ggml = "tts-ggml"
+    parakeet_transcription = "parakeet-transcription"
+    ggml_ocr = "ggml-ocr"
+    sdcpp_generation = "sdcpp-generation"
+    audiogen_ggml = "audiogen-ggml"
+    ggml_vla = "ggml-vla"
+    ggml_classification = "ggml-classification"
+    llm = "llm"
+    whisper = "whisper"
+    bci = "bci"
+    embeddings = "embeddings"
+    nmt = "nmt"
+    parakeet = "parakeet"
+    tts = "tts"
+    ocr = "ocr"
+    diffusion = "diffusion"
+    audiogen = "audiogen"
+    vla = "vla"
+    classification = "classification"
+
+
+class LoadModelSrcRequestAudiogenGgmlModelConfigMinimaxSynthModelSrc(
+    GeneratedBaseModel
+):
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
+        LoadModelSrcRequestAudiogenGgmlModelConfigMinimaxSynthModelSrcAddon
+        | Literal["vad"]
+        | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
+
+
+class LoadModelSrcRequestAudiogenGgmlModelConfigMinimax(GeneratedBaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    engine: Annotated[
+        Literal["minimax"],
+        Field(description="Use the MiniMax-Music3 generation engine."),
+    ] = "minimax"
+    use_gpu: Annotated[
+        bool | None,
+        Field(
+            alias="useGPU",
+            description="Run on a GPU backend (CUDA, Vulkan, Metal, …) when usable; falls back to CPU. `stats.backendDevice` reports the backend actually used.",
+        ),
+    ] = None
+    threads: Annotated[
+        int | None,
+        Field(
+            description="CPU thread count; `0` (default) lets the engine auto-pick.",
+            ge=0,
+            le=9007199254740991,
+        ),
+    ] = None
+    backends_dir: Annotated[
+        str | None,
+        Field(
+            alias="backendsDir",
+            description="Advanced: override the prebuilds root scanned for dlopen’d ggml backend modules. Defaults to `<addon>/prebuilds`; needed on arm64, where the CPU backend ships as per-microarch module `.so` files.",
+            min_length=1,
+        ),
+    ] = None
+    inference_steps: Annotated[
+        int | None,
+        Field(
+            alias="inferenceSteps",
+            description="MiniMax flow sampling steps; `0` uses the model default.",
+            ge=0,
+            le=1000,
+        ),
+    ] = None
+    cfg_scale: Annotated[
+        float | None,
+        Field(
+            alias="cfgScale",
+            description="MiniMax flow classifier-free guidance scale; `0` uses the model default.",
+            ge=0.0,
+            le=3.4028234663852886e38,
+        ),
+    ] = None
+    lm_model_src: Annotated[
+        str | LoadModelSrcRequestAudiogenGgmlModelConfigMinimaxLmModelSrc,
+        Field(
+            alias="lmModelSrc",
+            description="MiniMax language-model source; generates semantic music tokens.",
+        ),
+    ]
+    synth_model_src: Annotated[
+        str | LoadModelSrcRequestAudiogenGgmlModelConfigMinimaxSynthModelSrc,
+        Field(
+            alias="synthModelSrc",
+            description="MiniMax synthesis-model source; converts semantic tokens into the output waveform.",
         ),
     ]
 
@@ -11540,7 +14969,13 @@ class LoadModelSrcRequestAudiogenGgml(GeneratedBaseModel):
         extra="forbid",
     )
     type: Literal["loadModel"] = "loadModel"
-    model_src: Annotated[str, Field(alias="modelSrc")]
+    model_src: Annotated[
+        str,
+        Field(
+            alias="modelSrc",
+            description="The model to load: a registry model constant for a built-in model, or a model source — a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI — for HTTP, local, or P2P models.",
+        ),
+    ]
     model_name: Annotated[str | None, Field(alias="modelName")] = None
     with_progress: Annotated[bool | None, Field(alias="withProgress")] = None
     seed: bool | None = None
@@ -11549,6 +14984,20 @@ class LoadModelSrcRequestAudiogenGgml(GeneratedBaseModel):
         Field(
             alias="fallbackSrc",
             description="Alternate source — an HTTP URL or local file path — used to load a built-in registry model when it cannot be downloaded from the registry. The bytes are validated against the model checksum before use.",
+        ),
+    ] = None
+    require_http_checksum: Annotated[
+        bool | None,
+        Field(
+            alias="requireHttpChecksum",
+            description="Reject a Hugging Face HTTP download that exposes no usable SHA-256 instead of downloading it unverified. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
+    require_secure_transport: Annotated[
+        bool | None,
+        Field(
+            alias="requireSecureTransport",
+            description="Reject plaintext http:// and HTTPS→HTTP downgrades for every HTTP source on this call (loopback exempt); when unset, only Hugging Face transport is hardened. Overrides the engine config for this call; defaults to the config value (false).",
         ),
     ] = None
     request_id: Annotated[
@@ -11563,8 +15012,9 @@ class LoadModelSrcRequestAudiogenGgml(GeneratedBaseModel):
         "audiogen-ggml"
     )
     model_config_: Annotated[
-        LoadModelSrcRequestAudiogenGgmlModelConfig,
-        Field(alias="modelConfig", title="LoadModelSrcRequestAudiogenGgmlModelConfig"),
+        LoadModelSrcRequestAudiogenGgmlModelConfigAcestep
+        | LoadModelSrcRequestAudiogenGgmlModelConfigMinimax,
+        Field(alias="modelConfig"),
     ]
 
 
@@ -11652,7 +15102,13 @@ class LoadModelSrcRequestGgmlVla(GeneratedBaseModel):
         extra="forbid",
     )
     type: Literal["loadModel"] = "loadModel"
-    model_src: Annotated[str, Field(alias="modelSrc")]
+    model_src: Annotated[
+        str,
+        Field(
+            alias="modelSrc",
+            description="The model to load: a registry model constant for a built-in model, or a model source — a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI — for HTTP, local, or P2P models.",
+        ),
+    ]
     model_name: Annotated[str | None, Field(alias="modelName")] = None
     with_progress: Annotated[bool | None, Field(alias="withProgress")] = None
     seed: bool | None = None
@@ -11661,6 +15117,20 @@ class LoadModelSrcRequestGgmlVla(GeneratedBaseModel):
         Field(
             alias="fallbackSrc",
             description="Alternate source — an HTTP URL or local file path — used to load a built-in registry model when it cannot be downloaded from the registry. The bytes are validated against the model checksum before use.",
+        ),
+    ] = None
+    require_http_checksum: Annotated[
+        bool | None,
+        Field(
+            alias="requireHttpChecksum",
+            description="Reject a Hugging Face HTTP download that exposes no usable SHA-256 instead of downloading it unverified. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
+    require_secure_transport: Annotated[
+        bool | None,
+        Field(
+            alias="requireSecureTransport",
+            description="Reject plaintext http:// and HTTPS→HTTP downgrades for every HTTP source on this call (loopback exempt); when unset, only Hugging Face transport is hardened. Overrides the engine config for this call; defaults to the config value (false).",
         ),
     ] = None
     request_id: Annotated[
@@ -11709,7 +15179,13 @@ class LoadModelSrcRequestGgmlClassification(GeneratedBaseModel):
         extra="forbid",
     )
     type: Literal["loadModel"] = "loadModel"
-    model_src: Annotated[str, Field(alias="modelSrc")]
+    model_src: Annotated[
+        str,
+        Field(
+            alias="modelSrc",
+            description="The model to load: a registry model constant for a built-in model, or a model source — a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI — for HTTP, local, or P2P models.",
+        ),
+    ]
     model_name: Annotated[str | None, Field(alias="modelName")] = None
     with_progress: Annotated[bool | None, Field(alias="withProgress")] = None
     seed: bool | None = None
@@ -11718,6 +15194,20 @@ class LoadModelSrcRequestGgmlClassification(GeneratedBaseModel):
         Field(
             alias="fallbackSrc",
             description="Alternate source — an HTTP URL or local file path — used to load a built-in registry model when it cannot be downloaded from the registry. The bytes are validated against the model checksum before use.",
+        ),
+    ] = None
+    require_http_checksum: Annotated[
+        bool | None,
+        Field(
+            alias="requireHttpChecksum",
+            description="Reject a Hugging Face HTTP download that exposes no usable SHA-256 instead of downloading it unverified. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
+    require_secure_transport: Annotated[
+        bool | None,
+        Field(
+            alias="requireSecureTransport",
+            description="Reject plaintext http:// and HTTPS→HTTP downgrades for every HTTP source on this call (loopback exempt); when unset, only Hugging Face transport is hardened. Overrides the engine config for this call; defaults to the config value (false).",
         ),
     ] = None
     request_id: Annotated[
@@ -11748,7 +15238,13 @@ class LoadModelCustomPluginRequestModelConfig(RootModel[dict[str, Any]]):
 
 class LoadModelCustomPluginRequest(GeneratedBaseModel):
     type: Literal["loadModel"] = "loadModel"
-    model_src: Annotated[str, Field(alias="modelSrc")]
+    model_src: Annotated[
+        str,
+        Field(
+            alias="modelSrc",
+            description="The model to load: a registry model constant for a built-in model, or a model source — a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI — for HTTP, local, or P2P models.",
+        ),
+    ]
     model_name: Annotated[str | None, Field(alias="modelName")] = None
     with_progress: Annotated[bool | None, Field(alias="withProgress")] = None
     seed: bool | None = None
@@ -11757,6 +15253,20 @@ class LoadModelCustomPluginRequest(GeneratedBaseModel):
         Field(
             alias="fallbackSrc",
             description="Alternate source — an HTTP URL or local file path — used to load a built-in registry model when it cannot be downloaded from the registry. The bytes are validated against the model checksum before use.",
+        ),
+    ] = None
+    require_http_checksum: Annotated[
+        bool | None,
+        Field(
+            alias="requireHttpChecksum",
+            description="Reject a Hugging Face HTTP download that exposes no usable SHA-256 instead of downloading it unverified. Overrides the engine config for this call; defaults to the config value (false).",
+        ),
+    ] = None
+    require_secure_transport: Annotated[
+        bool | None,
+        Field(
+            alias="requireSecureTransport",
+            description="Reject plaintext http:// and HTTPS→HTTP downgrades for every HTTP source on this call (loopback exempt); when unset, only Hugging Face transport is hardened. Overrides the engine config for this call; defaults to the config value (false).",
         ),
     ] = None
     request_id: Annotated[
@@ -11908,17 +15418,79 @@ class ReloadConfigRequestModelConfigVadModelSrcAddon(Enum):
 
 
 class ReloadConfigRequestModelConfigVadModelSrc(GeneratedBaseModel):
-    src: str
-    name: str | None = None
-    model_id: Annotated[str | None, Field(alias="modelId")] = None
-    registry_path: Annotated[str | None, Field(alias="registryPath")] = None
-    registry_source: Annotated[str | None, Field(alias="registrySource")] = None
-    blob_core_key: Annotated[str | None, Field(alias="blobCoreKey")] = None
-    blob_index: Annotated[float | None, Field(alias="blobIndex")] = None
-    engine: str | None = None
-    expected_size: Annotated[float | None, Field(alias="expectedSize")] = None
-    sha256_checksum: Annotated[str | None, Field(alias="sha256Checksum")] = None
-    addon: ReloadConfigRequestModelConfigVadModelSrcAddon | Literal["vad"] | None = None
+    src: Annotated[
+        str,
+        Field(
+            description="Location of the model file: a local file path, an HTTP(S) URL, or a `registry://` / `pear://` URI."
+        ),
+    ]
+    name: Annotated[
+        str | None,
+        Field(
+            description="Display name for this model instance; overrides the name derived from the source."
+        ),
+    ] = None
+    model_id: Annotated[
+        str | None,
+        Field(
+            alias="modelId",
+            description="Unique identifier used to reference the model in QVAC calls.",
+        ),
+    ] = None
+    registry_path: Annotated[
+        str | None,
+        Field(
+            alias="registryPath",
+            description="Registry-relative path to the model (set for registry-backed models).",
+        ),
+    ] = None
+    registry_source: Annotated[
+        str | None,
+        Field(
+            alias="registrySource",
+            description="Registry source identifier, e.g. `huggingface`.",
+        ),
+    ] = None
+    blob_core_key: Annotated[
+        str | None,
+        Field(
+            alias="blobCoreKey",
+            description="Hyperdrive blob core key for the model file.",
+        ),
+    ] = None
+    blob_index: Annotated[
+        float | None,
+        Field(
+            alias="blobIndex",
+            description="Internal: index of this shard within its Hyperdrive blob core, for sharded models.",
+        ),
+    ] = None
+    engine: Annotated[
+        str | None,
+        Field(
+            description="Canonical inference engine identifier, e.g. `llamacpp-completion`."
+        ),
+    ] = None
+    expected_size: Annotated[
+        float | None,
+        Field(
+            alias="expectedSize",
+            description="Expected total size of the model file in bytes.",
+        ),
+    ] = None
+    sha256_checksum: Annotated[
+        str | None,
+        Field(
+            alias="sha256Checksum",
+            description="Expected SHA-256 checksum of the model file.",
+        ),
+    ] = None
+    addon: Annotated[
+        ReloadConfigRequestModelConfigVadModelSrcAddon | Literal["vad"] | None,
+        Field(
+            description="Inference addon / capability category this model belongs to."
+        ),
+    ] = None
 
 
 class ReloadConfigRequestModelConfig(GeneratedBaseModel):
@@ -12714,7 +16286,7 @@ class OcrStreamResponseBlocksItem(GeneratedBaseModel):
         extra="forbid",
     )
     text: str
-    bbox: list[Any] | None = None
+    bbox: tuple[float, float, float, float] | None = None
     confidence: float | None = None
 
 
@@ -14893,7 +18465,8 @@ class Response_1(
 
 class Response(
     RootModel[
-        AudioGenStreamResponse
+        AssessModelFitResponse
+        | AudioGenStreamResponse
         | BatchCompletionStreamResponse
         | BciTranscribeResponse
         | BciTranscribeStreamResponse
@@ -14939,7 +18512,8 @@ class Response(
     ]
 ):
     root: Annotated[
-        AudioGenStreamResponse
+        AssessModelFitResponse
+        | AudioGenStreamResponse
         | BatchCompletionStreamResponse
         | BciTranscribeResponse
         | BciTranscribeStreamResponse
@@ -14997,7 +18571,8 @@ class Request_6(RootModel[TranslateNmtRequest | TranslateLlmRequest]):
 
 class Request(
     RootModel[
-        AudioGenStreamRequest
+        AssessModelFitRequest
+        | AudioGenStreamRequest
         | BatchCompletionStreamRequest
         | BciTranscribeRequest
         | BciTranscribeStreamRequest
@@ -15039,7 +18614,8 @@ class Request(
     ]
 ):
     root: Annotated[
-        AudioGenStreamRequest
+        AssessModelFitRequest
+        | AudioGenStreamRequest
         | BatchCompletionStreamRequest
         | BciTranscribeRequest
         | BciTranscribeStreamRequest

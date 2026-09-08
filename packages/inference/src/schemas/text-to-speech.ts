@@ -156,7 +156,7 @@ const ttsPositiveInt32Schema = ttsInt32Schema.positive()
 
 // Describe text shared by fields repeated across engine arms.
 const TTS_USE_GPU_DESC =
-  'Route inference through a GPU backend (Metal / Vulkan / OpenCL) when available. Default false.'
+  'Route inference through a GPU backend (Metal / CUDA / Vulkan / OpenCL) when available. Default false.'
 const TTS_SEED_DESC =
   'RNG seed for the engine’s stochastic stages (e.g. Chatterbox CFM/SineGen, Supertonic latent generation).'
 const TTS_THREADS_DESC = 'CPU thread count; overrides the hardware default.'
@@ -391,9 +391,18 @@ const ttsCosyvoice3InstructSchema = z.union([
   z.string().trim().min(1),
   z
     .object({
-      dialect: z.enum(TTS_COSYVOICE3_INSTRUCT_DIALECTS).optional(),
-      volume: z.enum(TTS_COSYVOICE3_INSTRUCT_VOLUMES).optional(),
-      style: z.enum(TTS_COSYVOICE3_INSTRUCT_STYLES).optional()
+      dialect: z
+        .enum(TTS_COSYVOICE3_INSTRUCT_DIALECTS)
+        .optional()
+        .describe('Chinese dialect to render (e.g. `cantonese`, `sichuan`).'),
+      volume: z
+        .enum(TTS_COSYVOICE3_INSTRUCT_VOLUMES)
+        .optional()
+        .describe('Speaking volume: `loud` or `soft`.'),
+      style: z
+        .enum(TTS_COSYVOICE3_INSTRUCT_STYLES)
+        .optional()
+        .describe('Speaking style: `peppa` or `robot`.')
     })
     .strict()
     .refine(

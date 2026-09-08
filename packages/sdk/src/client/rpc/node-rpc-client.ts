@@ -16,9 +16,10 @@ import {
   WorkerCrashedError,
   WorkerShutdownError
 } from '@/utils/errors-client'
-import type { RuntimeContext } from '@qvac/inference/surface'
+import type { QvacConfig, RuntimeContext } from '@qvac/inference/surface'
+import { createRPCInitTimeoutCause, type WorkerExit } from './worker-startup-error'
+import { RPC_INIT_TIMEOUT_ENV_VAR, resolveRPCInitTimeoutMs } from './init-timeout'
 
-const RPC_INIT_TIMEOUT_MS = 30_000
 const WORKER_STDERR_TAIL_CHARS = 16_384
 
 const logger = getClientLogger()
@@ -174,13 +175,6 @@ function appendWorkerStderrTail(current: string, chunk: string) {
   const next = current + chunk
   if (next.length <= WORKER_STDERR_TAIL_CHARS) return next
   return next.slice(next.length - WORKER_STDERR_TAIL_CHARS)
-}
-
-function createWorkerStartupError(details: string, stderrTail: string) {
-  const stderr = stderrTail.trimEnd()
-  if (!stderr) return new Error(details)
-
-  return new Error(`${details}\n\nWorker stderr:\n${stderr}`)
 }
 
 function resetModuleState() {
@@ -344,12 +338,44 @@ function closeSyncForExit() {
   bestEffortUnlinkSocket(socketPathToClose)
 }
 
+/** Distinguishes "config file failed to load" from "no config file present". */
+const CONFIG_UNRESOLVED = Symbol('config-unresolved')
+
+/**
+ * The handshake timeout has to be known before the worker is spawned, but the
+ * config file is normally read after it (init-hooks). Read it early and hand
+ * the same object to init-hooks so the file is not parsed twice.
+ *
+ * A config that fails to load is swallowed here. init-hooks re-runs the
+ * resolver post-handshake, so the config error surfaces there rather than as a
+ * spawn failure.
+ */
+async function preresolveConfig(): Promise<QvacConfig | undefined | typeof CONFIG_UNRESOLVED> {
+  try {
+    return await resolveConfig()
+  } catch (error) {
+    logger.debug('Config preload for the RPC init timeout failed; using the default', { error })
+    return CONFIG_UNRESOLVED
+  }
+}
+
 async function ensureRPC(): Promise<RPC> {
   if (rpcInstance) return rpcInstance
   if (rpcPromise) return rpcPromise
   if (closePromise) {
     await closePromise
   }
+
+  const preresolved = await preresolveConfig()
+  const initTimeoutMs = resolveRPCInitTimeoutMs({
+    envValue: process.env[RPC_INIT_TIMEOUT_ENV_VAR],
+    configValue:
+      preresolved === CONFIG_UNRESOLVED ? undefined : (preresolved?.rpcInitTimeoutMs ?? undefined),
+    onInvalidEnvValue: (value) =>
+      logger.warn(
+        `Ignoring invalid ${RPC_INIT_TIMEOUT_ENV_VAR}=${value}; expected a positive integer of milliseconds`
+      )
+  })
 
   const socketPath = createSocketPath()
   currentSocketPath = socketPath
@@ -361,19 +387,15 @@ async function ensureRPC(): Promise<RPC> {
   rpcPromise = new Promise((resolve, reject) => {
     let settled = false
     let workerStderrTail = ''
+    let workerExitBeforeHandshake: WorkerExit | null = null
 
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
-      const cause = workerStderrTail
-        ? createWorkerStartupError(
-            'Worker did not establish IPC before the RPC initialization timeout',
-            workerStderrTail
-          )
-        : undefined
+      const cause = createRPCInitTimeoutCause(workerStderrTail, workerExitBeforeHandshake)
       teardownFailedInit()
-      reject(new RPCInitTimeoutError(RPC_INIT_TIMEOUT_MS, cause))
-    }, RPC_INIT_TIMEOUT_MS)
+      reject(new RPCInitTimeoutError(initTimeoutMs, cause))
+    }, initTimeoutMs)
 
     ipcServer = createServer((socket) => {
       if (settled) return
@@ -441,8 +463,10 @@ async function ensureRPC(): Promise<RPC> {
             handlePostHandshakeExit(code, exitSignal as NodeJS.Signals | null, spawnResources)
             return
           }
-          // Pre-handshake failures are rejected from "close" so stderr has
-          // drained before we assemble the startup error cause.
+          // Keep waiting for "close" so piped stderr can drain, but retain the
+          // exit status in case a slow stream (for example, a core dump) lets
+          // the initialization timer win that race.
+          workerExitBeforeHandshake = { code, signal: exitSignal }
         })
 
         bareWorkerProc.on('close', (...args: unknown[]) => {
@@ -457,11 +481,8 @@ async function ensureRPC(): Promise<RPC> {
           teardownFailedInit()
           reject(
             new RPCInitTimeoutError(
-              RPC_INIT_TIMEOUT_MS,
-              createWorkerStartupError(
-                `Worker process exited with code ${code}, signal ${exitSignal} before IPC connection was established`,
-                workerStderrTail
-              )
+              initTimeoutMs,
+              createRPCInitTimeoutCause(workerStderrTail, { code, signal: exitSignal })
             )
           )
         })
@@ -477,8 +498,11 @@ async function ensureRPC(): Promise<RPC> {
   }
 
   // init-hooks calls bare-rpc directly, bypassing rpc-client's race.
+  const resolveConfigForInit =
+    preresolved === CONFIG_UNRESOLVED ? resolveConfig : async () => preresolved
+
   await Promise.race([
-    initializeConfig(rpc, resolveConfig, runtimeContext),
+    initializeConfig(rpc, resolveConfigForInit, runtimeContext),
     rejectOnAbort(spawnController.signal)
   ])
 

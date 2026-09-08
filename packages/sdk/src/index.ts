@@ -29,6 +29,7 @@ export {
   getModelInfo,
   getLoadedModelInfo,
   getSystemResources,
+  assessModelFit,
   loggingStream,
   subscribeServerLogs,
   type ServerLogHandler,
@@ -157,6 +158,8 @@ export {
   type GPUResourceSample,
   type SystemResourceSample,
   type SystemResources,
+  type AssessModelFitInput,
+  type AssessModelFitResult,
   type LoadedInstance,
   type CacheFileInfo,
   toolSchema,
@@ -170,10 +173,12 @@ export {
   type DiffusionClientParams,
   type DiffusionStreamResponse,
   type DiffusionStats,
+  AUDIOGEN_ENGINES,
   AUDIOGEN_TASK_TYPES,
   AUDIOGEN_INPUT_SAMPLE_RATE,
   AUDIOGEN_INPUT_CHANNELS,
   AUDIOGEN_INPUT_MAX_SECONDS,
+  type AudioGenEngine,
   type AudioGenTaskType,
   type AudioGenAudioInput,
   type AudioGenClientParams,
@@ -283,6 +288,7 @@ export { InferenceCancelledError } from './utils/errors-server'
 export type { InferenceCancelledPartial } from './utils/errors-server'
 export {
   ContextOverflowError,
+  type ContextOverflowErrorSizes,
   RequestIdConflictError,
   RequestNotFoundError,
   RequestRejectedByPolicyError,
@@ -292,6 +298,10 @@ export {
 // `WorkerCrashedError` and `WorkerShutdownError` are thrown by the
 // rpc-client life-signal race when the bare worker exits unexpectedly
 // or close()/process-exit teardown runs while a caller is in flight.
+// `WorkerStartupError` is the pre-handshake counterpart: it is never thrown
+// directly, it is the `cause` of `RPCInitTimeoutError`, and it carries
+// `workerExited` / `exitCode` / `exitSignal` / `stderrTail` so a host can tell a
+// crashed worker from a slow one without parsing the message.
 // `BareRuntimeBinaryNotFoundError` is thrown when the worker fails to
 // spawn because the platform's `bare-runtime-<platform>-<arch>` package is
 // missing (common under pnpm). Exported so consumers can pattern-match with
@@ -303,6 +313,7 @@ export {
   BareRuntimeBinaryNotFoundError,
   WorkerCrashedError,
   WorkerShutdownError,
+  WorkerStartupError,
   RequestValidationFailedError,
   StreamEndedError
 } from './utils/errors-client'
