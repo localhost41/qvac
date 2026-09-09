@@ -39,7 +39,7 @@ jobs:
           python3 scripts/ci/localhost41-needed-evidence.py .evidence/consumer/node_modules .evidence/artifacts
       - name: Build the exact PR SDK and install the published CLI
         run: |
-          docker exec -w /work/pr-source/packages/sdk qvac-response-evidence sh -c 'npm install --omit=peer --no-audit --no-fund && npx --no-install tsc --project tsconfig.json && npm run postcompile:aliases && npm pack --ignore-scripts --pack-destination /work/.evidence/artifacts' > .evidence/artifacts/sdk-build.log 2>&1
+          docker exec -w /work/pr-source/packages/sdk qvac-response-evidence sh -c 'npm install --omit=peer --no-audit --no-fund --no-save apache-arrow@18.1.0 && npx --no-install tsc --project tsconfig.json && npm run postcompile:aliases && npm pack --ignore-scripts --pack-destination /work/.evidence/artifacts' > .evidence/artifacts/sdk-build.log 2>&1
           docker exec qvac-response-evidence sh -c 'npm install --omit=peer --no-audit --no-fund @qvac/cli@0.13.0 && cp package-lock.json ../artifacts/cli-package-lock.json'
       - name: Reproduce HTTP response with the published SDK
         run: |
