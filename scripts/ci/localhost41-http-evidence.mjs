@@ -14,7 +14,7 @@ assert.equal(cliRequire.resolve('@qvac/sdk'), sdkEntry, 'CLI must consume exactl
 const config = {
   rpcInitTimeoutMs: 30000,
   cacheDirectory: '/tmp/qvac-http-evidence-cache',
-  serve: { load: { lazy: true, timeoutMs: null }, models: { 'startup-probe': { model: 'QWEN3_600M_INST_Q4', preload: false } } }
+  serve: { load: { lazy: true, timeoutMs: null }, models: { 'startup-probe': { model: 'BERGAMOT_DE_EN', preload: true, config: { engine: 'Bergamot', from: 'de', to: 'en' } } } }
 }
 writeFileSync('qvac.config.json', JSON.stringify(config, null, 2))
 const logs = []
@@ -26,13 +26,13 @@ try {
   let ready = false
   for (let i=0;i<240;i++) {
     if (child.exitCode !== null) throw new Error(`serve exited ${child.exitCode}`)
-    try { const res=await fetch('http://127.0.0.1:32187/v1/models'); if(res.ok) { ready=true;break } } catch {}
+    try { const res=await fetch('http://127.0.0.1:32187/openapi.json'); if(res.ok) { ready=true;break } } catch {}
     await sleep(250)
   }
   assert(ready, 'serve must listen within 60 seconds')
   const listeningMs=performance.now()-began
   const requestAt=performance.now()
-  const res=await fetch('http://127.0.0.1:32187/v1/chat/completions', { method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:'startup-probe',messages:[{role:'user',content:'hi'}]}) })
+  const res=await fetch('http://127.0.0.1:32187/qvac/v1/translate', { method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:'startup-probe',text:'Hallo'}) })
   const body=await res.json()
   result={phase, sdkEntry, cliEntry, listeningMs, requestMs:performance.now()-requestAt, status:res.status, body}
   writeFileSync(path.join(artifact,`${phase}-http.json`),JSON.stringify(result,null,2))
