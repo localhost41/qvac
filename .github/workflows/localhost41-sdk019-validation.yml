@@ -6,100 +6,57 @@ on:
 permissions:
   contents: read
 jobs:
-  libatomic:
+  linux-evidence:
     if: github.repository == 'localhost41/qvac'
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
-    runs-on: ${{ matrix.runner }}
-    container: node:22-bookworm-slim
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          sparse-checkout: scripts/ci
-          persist-credentials: false
-      - name: Install published SDK without OS prerequisite workaround
-        working-directory: /tmp
-        run: |
-          mkdir qvac-libatomic-probe
-          cd qvac-libatomic-probe
-          npm init -y
-          npm install --omit=peer --no-audit --no-fund @qvac/sdk@0.19.0 typescript@5.9.3
-          cp "$GITHUB_WORKSPACE/scripts/ci/localhost41-libatomic-probe.mjs" ./probe.mjs
-          node -e 'require("fs").writeFileSync("qvac.config.json", JSON.stringify({plugins:["@qvac/sdk/llamacpp-completion/plugin"],cacheDirectory:"/tmp/qvac-libatomic-cache",rpcInitTimeoutMs:15000,loggerLevel:"off"}))'
-          cat /etc/os-release > os-release.txt
-          node --version > node-version.txt
-          npm ls --all --json > dependency-tree.json || true
-          if dpkg-query -W -f='${Status}' libatomic1 2>/dev/null | grep -q 'install ok installed'; then
-            echo 'libatomic1 is already installed; this is not the intended baseline'
-            exit 1
-          fi
-      - name: Released SDK exposes real missing-library failure
-        working-directory: /tmp/qvac-libatomic-probe
-        run: node probe.mjs baseline
-      - name: Apply exact PR 4332 source to installed SDK
-        working-directory: /tmp/qvac-libatomic-probe
-        run: node probe.mjs patch
-      - name: Patched SDK reports actionable hint with original metadata
-        working-directory: /tmp/qvac-libatomic-probe
-        run: node probe.mjs patched
-      - name: Install observed Linux prerequisites and verify startup
-        working-directory: /tmp/qvac-libatomic-probe
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends libatomic1 libssl3 libvulkan1
-          node probe.mjs fixed
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
-        if: always()
-        with:
-          name: libatomic-${{ matrix.runner }}
-          path: |
-            /tmp/qvac-libatomic-probe/*-result.json
-            /tmp/qvac-libatomic-probe/package-lock.json
-            /tmp/qvac-libatomic-probe/dependency-tree.json
-            /tmp/qvac-libatomic-probe/os-release.txt
-            /tmp/qvac-libatomic-probe/node-version.txt
-            /tmp/qvac-libatomic-probe/patch-source.ts
-          retention-days: 14
-  opencode:
-    if: github.repository == 'localhost41/qvac' && !contains(github.event.head_commit.message, '[linux-only]')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
-    env:
-      XDG_CONFIG_HOME: ${{ github.workspace }}/.probe/config
-      XDG_DATA_HOME: ${{ github.workspace }}/.probe/data
-      XDG_CACHE_HOME: ${{ github.workspace }}/.probe/cache
-      XDG_STATE_HOME: ${{ github.workspace }}/.probe/state
-      QVAC_HOST_LOG: ${{ github.workspace }}/.probe/artifacts/qvac-host.log
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           sparse-checkout: scripts/ci
           persist-credentials: false
-      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          node-version: '22'
-      - name: Prepare candidate release dependency stack
+          repository: localhost41/qvac
+          ref: 5ae0616cdae0c17fc7ac7a007a85e8b78269c13e
+          path: pr-source
+          sparse-checkout: |
+            packages/sdk
+            packages/inference/package.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Start pristine published-SDK consumer
         run: |
-          mkdir -p .probe/artifacts .probe/project
-          cd .probe/project
-          node ../../scripts/ci/localhost41-opencode-setup.mjs
-          npm install --omit=peer --no-audit --no-fund
-          npm ls --all --json > ../artifacts/dependency-tree.json || true
-          cp package-lock.json ../artifacts/package-lock.json
-          node ../../scripts/ci/localhost41-opencode-setup.mjs verify
-      - name: Real OpenCode answer with SDK 0.19.0
-        working-directory: .probe/project
+          mkdir -p .evidence/consumer .evidence/artifacts
+          docker pull node:22-slim
+          docker image inspect node:22-slim > .evidence/artifacts/container-image.json
+          docker run -d --name qvac-response-evidence -v "$GITHUB_WORKSPACE:/work" -w /work/.evidence/consumer node:22-slim sleep infinity
+          docker exec qvac-response-evidence sh -c 'cat /etc/os-release > ../artifacts/os-release.txt; node --version > ../artifacts/node-version.txt; ldconfig -p > ../artifacts/baseline-ldconfig.txt; dpkg-query -W > ../artifacts/baseline-packages.txt'
+          docker exec qvac-response-evidence sh -c 'npm init -y && npm install --omit=peer --no-audit --no-fund @qvac/sdk@0.19.0'
+          docker exec qvac-response-evidence sh -c 'npm ls --all --json > ../artifacts/sdk-dependency-tree.json || true; cp package-lock.json ../artifacts/sdk-package-lock.json'
+      - name: Record the SDK installed-tree dependencies against the pristine image
         run: |
-          npx --no-install opencode --version > ../artifacts/opencode-version.txt
-          timeout 20m npx --no-install opencode run --print-logs --log-level DEBUG --model qvac/qwen3.5-0.8b --format json 'Reply with exactly this text and nothing else: qvac-ok' > ../artifacts/opencode-run.jsonl 2> ../artifacts/opencode-run.stderr
-          node ../artifacts/verify-opencode-run-output.cjs ../artifacts/opencode-run.jsonl
+          python3 scripts/ci/localhost41-needed-evidence.py .evidence/consumer/node_modules .evidence/artifacts
+      - name: Build the exact PR SDK and install the published CLI
+        run: |
+          docker exec -w /work/pr-source/packages/sdk qvac-response-evidence sh -c 'npm install --omit=peer --no-audit --no-fund && npx --no-install tsc --project tsconfig.json && npm run postcompile:aliases && npm pack --ignore-scripts --pack-destination /work/.evidence/artifacts' > .evidence/artifacts/sdk-build.log 2>&1
+          docker exec qvac-response-evidence sh -c 'npm install --omit=peer --no-audit --no-fund @qvac/cli@0.13.0 && cp package-lock.json ../artifacts/cli-package-lock.json'
+      - name: Reproduce HTTP response with the published SDK
+        run: |
+          docker exec qvac-response-evidence node /work/scripts/ci/localhost41-http-evidence.mjs released
+      - name: Reproduce HTTP response with the complete built PR package
+        run: |
+          docker exec qvac-response-evidence sh -c 'npm install --omit=peer --no-audit --no-fund ../artifacts/qvac-sdk-*.tgz && cp package-lock.json ../artifacts/branch-package-lock.json'
+          docker exec qvac-response-evidence node /work/scripts/ci/localhost41-http-evidence.mjs branch
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         if: always()
         with:
-          name: opencode-sdk019
+          name: sdk019-http-and-native-inventory
           include-hidden-files: true
-          path: .probe/artifacts/
-          retention-days: 14
+          path: |
+            .evidence/artifacts/
+            !.evidence/artifacts/*.tgz
+          retention-days: 30
+      - name: Stop the disposable container
+        if: always()
+        run: docker rm -f qvac-response-evidence
