@@ -6,57 +6,53 @@ on:
 permissions:
   contents: read
 jobs:
-  linux-evidence:
+  opencode-published:
     if: github.repository == 'localhost41/qvac'
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 40
+    env:
+      SMOKE_DIR: ${{ github.workspace }}/.probe/project
+      ARTIFACT_DIR: ${{ github.workspace }}/.probe/artifacts
+      QVAC_HOST_LOG: ${{ github.workspace }}/.probe/artifacts/qvac-host.log
+      XDG_CONFIG_HOME: ${{ github.workspace }}/.probe/config
+      XDG_DATA_HOME: ${{ github.workspace }}/.probe/data
+      XDG_CACHE_HOME: ${{ github.workspace }}/.probe/cache
+      XDG_STATE_HOME: ${{ github.workspace }}/.probe/state
+      QVAC_DEBUG: '1'
+      QVAC_MODEL: qwen3.5-0.8b
+      QVAC_READY_TIMEOUT_MS: '1800000'
+      QVAC_UPSTREAM_TIMEOUT_MS: '300000'
+      OPENCODE_TIMEOUT: 30m
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          repository: localhost41/qvac
+          ref: 5877dc5318d5ac9a0625b1606189512d1da76e5e
           sparse-checkout: scripts/ci
           persist-credentials: false
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
         with:
-          repository: localhost41/qvac
-          ref: 5ae0616cdae0c17fc7ac7a007a85e8b78269c13e
-          path: pr-source
-          sparse-checkout: |
-            packages/sdk
-            packages/inference/package.json
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-      - name: Start pristine published-SDK consumer
+          node-version: '22'
+      - name: Run the exact PR 4333 smoke script with published packages
+        run: bash scripts/ci/opencode-upstream-compat-smoke.sh
+      - name: Confirm the tested release versions and preserve the lockfile
         run: |
-          mkdir -p .evidence/consumer .evidence/artifacts
-          docker pull node:22-slim
-          docker image inspect node:22-slim > .evidence/artifacts/container-image.json
-          docker run -d --name qvac-response-evidence -v "$GITHUB_WORKSPACE:/work" -w /work/.evidence/consumer node:22-slim sleep infinity
-          docker exec qvac-response-evidence sh -c 'cat /etc/os-release > ../artifacts/os-release.txt; node --version > ../artifacts/node-version.txt; ldconfig -p > ../artifacts/baseline-ldconfig.txt; dpkg-query -W > ../artifacts/baseline-packages.txt'
-          docker exec qvac-response-evidence sh -c 'npm init -y && npm install --omit=peer --no-audit --no-fund @qvac/sdk@0.19.0'
-          docker exec qvac-response-evidence sh -c 'npm ls --all --json > ../artifacts/sdk-dependency-tree.json || true; cp package-lock.json ../artifacts/sdk-package-lock.json'
-      - name: Record the SDK installed-tree dependencies against the pristine image
-        run: |
-          python3 scripts/ci/localhost41-needed-evidence.py .evidence/consumer/node_modules .evidence/artifacts
-      - name: Build the exact PR SDK and install the published CLI
-        run: |
-          docker exec -w /work/pr-source/packages/sdk qvac-response-evidence sh -c 'npm install --omit=peer --no-audit --no-fund --no-save apache-arrow@18.1.0 && npx --no-install tsc --project tsconfig.json && npm run postcompile:aliases && npm pack --ignore-scripts --pack-destination /work/.evidence/artifacts' > .evidence/artifacts/sdk-build.log 2>&1
-          docker exec qvac-response-evidence sh -c 'npm install --omit=peer --no-audit --no-fund @qvac/cli@0.13.0 && cp package-lock.json ../artifacts/cli-package-lock.json'
-      - name: Reproduce HTTP response with the published SDK
-        run: |
-          docker exec qvac-response-evidence node /work/scripts/ci/localhost41-http-evidence.mjs released
-      - name: Reproduce HTTP response with the complete built PR package
-        run: |
-          docker exec qvac-response-evidence sh -c 'npm install --omit=peer --no-audit --no-fund ../artifacts/qvac-sdk-*.tgz && cp package-lock.json ../artifacts/branch-package-lock.json'
-          docker exec qvac-response-evidence node /work/scripts/ci/localhost41-http-evidence.mjs branch
+          cp "$SMOKE_DIR/package-lock.json" "$ARTIFACT_DIR/package-lock.json"
+          node - <<'NODE'
+          const assert = require('node:assert/strict')
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const root = process.env.ARTIFACT_DIR
+          const versions = JSON.parse(fs.readFileSync(path.join(root, 'package-versions.json')))
+          assert.equal(versions['@qvac/opencode-plugin'], '0.3.1')
+          assert.equal(versions['@qvac/sdk'], '0.19.0')
+          assert.equal(versions['@qvac/cli'], '0.13.0')
+          fs.writeFileSync(path.join(root, 'provenance.json'), JSON.stringify({ sourceCommit: '5877dc5318d5ac9a0625b1606189512d1da76e5e', note: 'Exact PR smoke script and verifier; packages installed unmodified from npm; default plugin-name loading.' }, null, 2))
+          NODE
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         if: always()
         with:
-          name: sdk019-http-and-native-inventory
+          name: opencode-sdk019-published
           include-hidden-files: true
-          path: |
-            .evidence/artifacts/
-            !.evidence/artifacts/*.tgz
+          path: .probe/artifacts/
           retention-days: 30
-      - name: Stop the disposable container
-        if: always()
-        run: docker rm -f qvac-response-evidence
