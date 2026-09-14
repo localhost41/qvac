@@ -1,5 +1,20 @@
 'use strict'
 
+// Match the normalization policy in #4373 (e130c51db): formatting and control
+// markup are not content, but surrounding prose must still fail equality.
+const ROUTING_TOKEN = /\[\[[^\]]*\]\]/g
+const TOOL_CALL_MARKUP = /<tool_call\b[\s\S]*?(?:<\/tool_call>|$)/gi
+
+function normalizeReply (text) {
+  return String(text)
+    .replace(TOOL_CALL_MARKUP, '')
+    .replace(ROUTING_TOKEN, '')
+    .trim()
+    .replace(/^[\s"'`*_]+/, '')
+    .replace(/[\s"'`*_.!]+$/, '')
+    .toLowerCase()
+}
+
 /**
  * Verify the JSONL from `opencode run --format json`. The CLI's exit status
  * alone does not prove that it returned an answer. Only assistant text in a
@@ -48,8 +63,8 @@ function verifyRunOutput (text) {
     .map((event) => event.part.text).join('\n').trim()
 
   if (!assistantText) throw new Error('OpenCode produced no assistant text in its completed step')
-  // Match the exact-token prompt, so even a short refusal quoting it fails.
-  if (assistantText !== 'qvac-ok') {
+  // Match the word-only prompt, so even a short refusal quoting it fails.
+  if (normalizeReply(assistantText) !== 'qvac-ok') {
     throw new Error(`OpenCode did not answer with qvac-ok: ${assistantText.slice(0, 300)}`)
   }
 }

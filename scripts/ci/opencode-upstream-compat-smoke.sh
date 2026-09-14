@@ -139,7 +139,7 @@ run_opencode=(
   --log-level DEBUG
   --model "qvac/${QVAC_MODEL}"
   --format json
-  "Reply with exactly this text and nothing else: qvac-ok"
+  "Reply with only the word qvac-ok."
 )
 
 if command -v timeout > /dev/null 2>&1; then

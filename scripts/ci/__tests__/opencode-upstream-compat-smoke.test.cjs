@@ -10,11 +10,13 @@ const { delimiter, join, resolve } = require('node:path')
 const smokeScript = resolve(__dirname, '../opencode-upstream-compat-smoke.sh')
 const fixture = readFileSync(join(__dirname, 'fixtures/opencode-pass-qvac-ok.jsonl'), 'utf8')
 const refusal = readFileSync(join(__dirname, 'fixtures/opencode-refusal-quoting-token.jsonl'), 'utf8')
+const formatted = fixture.replace('"text":"qvac-ok"', '"text":"**QVAC-OK!**"')
 
 // Exercise the real shell script and Node verifier, replacing only package
 // installation and the OpenCode CLI. No model or network is needed.
 for (const [name, output, exitCode, skip, expectedStatus] of [
   ['valid answer', fixture, 0, false, 0],
+  ['formatted answer', formatted, 0, false, 0],
   ['empty output', '', 0, false, 1],
   ['refusal quoting the token', refusal, 0, false, 1],
   ['error event', '{"type":"error"}\n', 0, false, 1],
@@ -39,6 +41,8 @@ if [ "$1" = opencode ] && [ "$2" = --version ]; then
   exit 0
 fi
 if [ "$1" != opencode ] || [ "$2" != run ]; then exit 91; fi
+for arg do prompt="$arg"; done
+if [ "$prompt" != "Reply with only the word qvac-ok." ]; then exit 92; fi
 cat "$OPENCODE_TEST_OUTPUT"
 exit "$OPENCODE_TEST_EXIT_CODE"
 `, { mode: 0o755 })

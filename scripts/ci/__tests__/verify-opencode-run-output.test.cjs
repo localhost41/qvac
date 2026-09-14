@@ -33,6 +33,37 @@ test('accepts blank lines, CRLF and surrounding answer whitespace', () => {
   }).replaceAll('\n', '\r\n') + '\r\n')
 })
 
+// Same accepted formatting as the OpenClaw verifier in #4373.
+for (const text of [
+  'qvac-ok.', 'qvac-ok!', '`qvac-ok`', '"qvac-ok"', "'qvac-ok'",
+  '**qvac-ok**', '_qvac-ok_', 'QVAC-OK', '  **"QVAC-OK!"**  ',
+  '[[reply_to:abc123]]qvac-ok', '<tool_call>\n</tool_call>\nqvac-ok'
+]) {
+  test(`accepts a formatted answer: ${JSON.stringify(text)}`, () => {
+    verifyRunOutput(mutated((events) => {
+      events[1].part.text = text
+    }))
+  })
+}
+
+for (const text of [
+  'I am unable to say qvac-ok here.',
+  'Sorry, qvac-ok is not something I can output.',
+  'Here you go: qvac-ok.', 'The answer is qvac-ok', 'qvac-ok is the token',
+  // Real false green from OpenClaw run 34375067376, applied to OpenCode JSONL.
+  'The qvac-ok command is already executed successfully.',
+  '<tool_call></tool_call>',
+  '<tool_call>{"name":"say","args":{"text":"qvac-ok"}}</tool_call>',
+  '<tool_call>{"name":"say","args":{"text":"qvac-ok"',
+  '[[reply_to:qvac-ok]]'
+]) {
+  test(`rejects prose or markup containing the token: ${JSON.stringify(text)}`, () => {
+    assert.throws(() => verifyRunOutput(mutated((events) => {
+      events[1].part.text = text
+    })), /did not answer with qvac-ok/)
+  })
+}
+
 for (const text of ['', ' \n\t']) {
   test(`rejects empty stdout ${JSON.stringify(text)}`, () => {
     assert.throws(() => verifyRunOutput(text), /produced no stdout/)
