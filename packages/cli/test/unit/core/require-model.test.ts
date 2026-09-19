@@ -14,12 +14,7 @@ import type { QvacContext } from '@/serve/core/context'
 import { HttpError } from '@/serve/lib/http-error'
 import { WorkerStartupError } from '@qvac/sdk'
 
-function rpcTimeout(cause?: unknown): Error {
-  return new Error(
-    'RPC initialization timed out after 30000ms — the worker process may have failed to start',
-    { cause }
-  )
-}
+import { rpcTimeout } from '../../helpers/worker-startup.js'
 
 const logger = createLogger('silent')
 
@@ -76,9 +71,6 @@ function fakeExchange(ctx: QvacContext) {
 }
 
 describe('ensureReady worker startup diagnostics', () => {
-  const missingLibatomic =
-    'libatomic.so.1: cannot open shared object file: No such file or directory'
-
   async function httpError(error: unknown): Promise<HttpError> {
     const ctx = makeCtx(() => Promise.reject(error), {}, false)
     try {
@@ -97,56 +89,24 @@ describe('ensureReady worker startup diagnostics', () => {
     { code: 134, signal: null }
   ]) {
     it(`reports an early exit (${exit.code}, ${exit.signal}) without claiming a timeout`, async () => {
-      const stderr = `/private/worker/addon.bare: ${missingLibatomic}\nprivate diagnostic marker`
-      const cause = new WorkerStartupError('worker failed', exit, stderr)
-      const error = rpcTimeout(cause)
-      const originalMessage = error.message
-      const originalCauseMessage = cause.message
+      const cause = new WorkerStartupError('/private/worker', exit, 'private diagnostic marker')
+      const result = await httpError(rpcTimeout(cause))
 
-      const result = await httpError(error)
-
-      assert.match(result.message, /Worker process exited.*before IPC connection was established/)
-      assert.match(result.message, /Missing Linux runtime library libatomic\.so\.1/)
-      assert.match(result.message, /install libatomic1 in the environment running the worker/)
-      assert.doesNotMatch(result.message, /timed out|30000|\/private\/|diagnostic marker/)
-      assert.equal(error.cause, cause)
-      assert.equal(error.message, originalMessage)
-      assert.equal(cause.message, originalCauseMessage)
-      assert.equal(cause.stderrTail, stderr)
-      assert.equal(cause.exitCode, exit.code)
-      assert.equal(cause.exitSignal, exit.signal)
+      assert.equal(
+        result.message,
+        `Model "m" failed to load: Worker process exited (code ${exit.code}, signal ${exit.signal}) before IPC was established`
+      )
     })
   }
 
-  it('preserves the genuine timeout while the worker is still running', async () => {
-    const cause = new WorkerStartupError('still waiting', null, '/private/worker/log')
-    const error = rpcTimeout(cause)
-    const result = await httpError(error)
-    assert.equal(result.message, `Model "m" failed to load: ${error.message}`)
-    assert.doesNotMatch(result.message, /Worker process exited|\/private\//)
-  })
-
-  it('adds the prerequisite hint to a real timeout without claiming an exit', async () => {
-    const error = rpcTimeout(new WorkerStartupError('still waiting', null, missingLibatomic))
-    const result = await httpError(error)
-    assert.ok(result.message.startsWith(`Model "m" failed to load: ${error.message}`))
-    assert.match(result.message, /install libatomic1/)
-    assert.doesNotMatch(result.message, /Worker process exited/)
-  })
-
-  for (const stderr of [
-    '',
-    'libssl.so.3: cannot open shared object file: No such file or directory',
-    'libatomic.so.1: version ATOMIC_1.0 not found',
-    'loaded libatomic.so.1 successfully'
-  ]) {
-    it(`does not invent a prerequisite remedy for ${JSON.stringify(stderr)}`, async () => {
-      const error = rpcTimeout(
-        new WorkerStartupError('worker failed', { code: 1, signal: null }, stderr)
+  for (const wrapped of [false, true]) {
+    it(`reports a startup timeout without copying SDK diagnostics (wrapped: ${wrapped})`, async () => {
+      const cause = new WorkerStartupError('/private/worker', null, 'private stderr')
+      const result = await httpError(wrapped ? rpcTimeout(cause) : cause)
+      assert.equal(
+        result.message,
+        'Model "m" failed to load: Worker did not establish IPC before the startup timeout'
       )
-      const result = await httpError(error)
-      assert.match(result.message, /Worker process exited/)
-      assert.doesNotMatch(result.message, /timed out|libatomic1|libssl|ATOMIC_1\.0/)
     })
   }
 
@@ -154,13 +114,30 @@ describe('ensureReady worker startup diagnostics', () => {
     const result = await httpError(
       new WorkerStartupError('/private/worker', { code: 1, signal: null }, 'private stderr')
     )
-    assert.match(result.message, /Worker process exited/)
-    assert.doesNotMatch(result.message, /private/)
+    assert.equal(
+      result.message,
+      'Model "m" failed to load: Worker process exited (code 1, signal null) before IPC was established'
+    )
+  })
+
+  it('preserves the original SDK error and diagnostics', async () => {
+    const stderr = '/private/worker/log'
+    const cause = new WorkerStartupError('worker failed', { code: 1, signal: null }, stderr)
+    const error = rpcTimeout(cause)
+    const originalMessage = error.message
+    const originalCauseMessage = cause.message
+
+    await httpError(error)
+
+    assert.equal(error.cause, cause)
+    assert.equal(error.message, originalMessage)
+    assert.equal(cause.message, originalCauseMessage)
+    assert.equal(cause.stderrTail, stderr)
   })
 
   it('leaves ordinary errors, non-errors and untyped lookalike causes unchanged', async () => {
     const lookalike = new Error('ordinary error', {
-      cause: { workerExited: true, stderrTail: missingLibatomic }
+      cause: { workerExited: true, stderrTail: 'private stderr' }
     })
     for (const error of [lookalike, rpcTimeout(), 'plain failure']) {
       const result = await httpError(error)

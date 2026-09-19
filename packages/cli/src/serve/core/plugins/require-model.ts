@@ -109,26 +109,13 @@ function modelLoadFailureMessage(err: unknown): string {
       : err instanceof Error && err.cause instanceof WorkerStartupError
         ? err.cause
         : null
-  const originalMessage = err instanceof Error ? err.message : String(err)
-  if (!startup) return originalMessage
+  if (!startup) return err instanceof Error ? err.message : String(err)
 
   // The outer SDK error can say "timeout" even when the worker exited early.
   // Reconstruct only known diagnostics: startup.message includes raw stderr.
-  let message = startup.workerExited
-    ? `Worker process exited with code ${startup.exitCode}, signal ${startup.exitSignal} before IPC connection was established`
-    : startup === err
-      ? 'Worker did not establish IPC before the RPC initialization timeout'
-      : originalMessage
-
-  if (
-    startup.stderrTail.includes(
-      'libatomic.so.1: cannot open shared object file: No such file or directory'
-    )
-  ) {
-    message +=
-      '. Missing Linux runtime library libatomic.so.1. On Debian or Ubuntu, install libatomic1 in the environment running the worker'
-  }
-  return message
+  return startup.workerExited
+    ? `Worker process exited (code ${startup.exitCode}, signal ${startup.exitSignal}) before IPC was established`
+    : 'Worker did not establish IPC before the startup timeout'
 }
 
 // Aborts if the client disconnects before the load finishes: `reply.raw` closes

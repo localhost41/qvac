@@ -47,14 +47,6 @@ Independently, `--docs` adds same-port `localhost`, `127.0.0.1`, and `[::1]` ori
 
 ## Model loading & lifecycle
 
-Model-load failures return `503 model_load_failed`. When the SDK reports that its
-worker exited before establishing IPC, the response describes that early exit
-instead of claiming the RPC timeout elapsed. A missing `libatomic.so.1` loader
-diagnostic also adds the Debian/Ubuntu `libatomic1` installation hint. Raw worker
-stderr stays in SDK/server diagnostics and is not copied into this HTTP summary.
-If the worker is still running, the RPC timeout message is preserved. The separate
-configured per-load deadline continues to return `503 model_load_timeout`.
-
 Every model listed under `serve.models` is addressable by its alias. How and when
 it loads depends on `preload`:
 
@@ -72,6 +64,13 @@ Loading is transparent: a request may name any configured alias whether or not i
 currently loaded. Unloading an alias frees its resources but keeps it configured, so the
 next request loads it again. There is no "load" endpoint — send a normal request, or set
 `preload: true`.
+
+Model-load failures return `503 model_load_failed`. When the SDK reports that its
+worker exited before establishing IPC, the response describes that early exit
+instead of claiming the startup timeout elapsed. If the worker is still running,
+the response reports that IPC was not established before the startup timeout.
+Raw SDK messages and worker stderr are not copied into these startup summaries.
+The separate configured per-load deadline continues to return `503 model_load_timeout`.
 
 ### Load management (`serve.load`)
 
