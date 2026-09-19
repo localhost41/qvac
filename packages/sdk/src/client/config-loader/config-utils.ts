@@ -3,7 +3,7 @@ import { ConfigValidationFailedError } from '@/utils/errors-client'
 import { formatZodError } from '@/utils/zod-error'
 import { z } from 'zod'
 
-/** Bundler-only fields kept compatible with older inference package installs. */
+/** Bundler options; runtime support is checked against the SDK being bundled. */
 const bundlerConfigSchema = z.object({
   includeAudioDecoder: z.boolean().optional()
 })

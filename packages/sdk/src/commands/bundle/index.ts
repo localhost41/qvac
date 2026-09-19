@@ -8,7 +8,7 @@ import {
 } from '@/client/config-loader/resolve-config.node'
 import { getClientLogger } from '@/logging'
 import type { Logger } from '@/logging/types'
-import { BareImportsMapNotFoundError } from '@/utils/errors-client'
+import { BareImportsMapNotFoundError, ConfigValidationFailedError } from '@/utils/errors-client'
 import { resolvePluginSpecifiers, parseBuiltinSpecifier } from '@/commands/bundle/plugins'
 import { generateWorkerEntries } from '@/commands/bundle/entry-gen'
 import { runBarePack } from '@/commands/bundle/bare-pack'
@@ -50,6 +50,23 @@ export function resolveDeferredModules(
     modules.push(AUDIO_DECODER_MODULE)
   }
   return modules
+}
+
+async function assertAudioDecoderOptOutSupported(sdkPath: string): Promise<void> {
+  const manifestPath = require.resolve('@qvac/inference/package', {
+    paths: [fs.realpathSync(sdkPath)]
+  })
+  // Inspect the worker's runtime without importing a second engine (which can
+  // register conflicting error codes in the bundler process).
+  const manifest = JSON.parse(await fsp.readFile(manifestPath, 'utf8')) as {
+    qvac?: { optionalAudioDecoder?: boolean }
+  }
+  if (manifest.qvac?.optionalAudioDecoder !== true) {
+    throw new ConfigValidationFailedError(
+      'includeAudioDecoder: false requires an @qvac/inference runtime with lazy audio decoder support. ' +
+        'Update the inference package used by the SDK being bundled, or omit includeAudioDecoder to keep the decoder bundled.'
+    )
+  }
 }
 
 function resolveSdkPath(projectRoot: string, explicitSdkPath?: string): string {
@@ -133,6 +150,9 @@ export async function bundleSdk(options: BundleSdkOptions = {}): Promise<BundleS
   }
 
   const sdkPath = resolveSdkPath(projectRoot, options.sdkPath)
+  if (config.includeAudioDecoder === false) {
+    await assertAudioDecoderOptOutSupported(sdkPath)
+  }
   const sdkName = await resolveSdkName(sdkPath)
   logger.info(`📦 SDK: ${sdkName}`)
   logger.debug(`   Path: ${sdkPath}`)
