@@ -6,12 +6,33 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-09-25
+
+### Fixed
+
+- Reject malformed EasyOCR model tensor shapes, vocabulary indexes, and bias tensors, including prediction biases with extra dimensions, before unsafe reads or writes.
+
+## [0.25.0] - 2026-09-23
+
 ### Added
 
 - Add `main-gpu` (alias `main_gpu`) to select a GPU by raw registry index or
   `dedicated` / `integrated` class when a GPU backend is requested. Unavailable
   classes and refused devices fall back to CPU; out-of-range indices warn and
   use automatic selection. Cannot be combined with `gpuDevice`.
+
+### Changed
+
+- `@qvac/fabric` dependency bumped `^0.16.1` -> `^0.17.0`, carrying
+  `qvac-fabric` `10549.1.0` -> `10549.3.0`. This includes the managed RPC
+  lifecycle, distributed-load improvements, MTP and fit correctness fixes,
+  Windows backend loading fixes, and CUDA FP4 optimizations.
+
+### Fixed
+
+- Mobile integration imports now resolve through package-scoped entry points,
+  so the generated mobile bundle no longer depends on repository-relative
+  paths.
 
 ## [0.24.3] - 2026-09-18
 

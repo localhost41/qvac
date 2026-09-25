@@ -6,6 +6,7 @@ import { Readable } from 'bare-stream'
 import Buffer from 'bare-buffer'
 import { getEngineLogger } from '@/logging/index'
 import { type AudioFormat } from '@/schemas/index'
+import { ConfigValidationFailedError } from '@/errors'
 
 const logger = getEngineLogger()
 
@@ -55,7 +56,13 @@ export async function decodeAudioToStream(
   const { sampleRate, inactivityTimeoutMs = DECODER_INACTIVITY_TIMEOUT_MS } = options
   // A literal dynamic import keeps the decoder packageable by default and
   // lets raw-only bundles explicitly defer it without breaking worker startup.
-  const { FFmpegDecoder } = await import('@qvac/decoder-audio')
+  const { FFmpegDecoder } = await import('@qvac/decoder-audio').catch((cause: unknown) => {
+    throw new ConfigValidationFailedError(
+      'Encoded audio requires @qvac/decoder-audio. Rebuild with includeAudioDecoder enabled ' +
+        'and without deferring @qvac/decoder-audio, or supply raw PCM input.',
+      cause
+    )
+  })
   const decoder = new FFmpegDecoder({
     config: { audioFormat, ...(sampleRate !== undefined && { sampleRate }) },
     logger

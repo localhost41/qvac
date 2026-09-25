@@ -11,7 +11,7 @@ import { generateWorkerEntries, generateWorkerEntry } from '@/commands/bundle/en
 
 function fakeBundleSdkProject(
   t: { after: (fn: () => void) => void },
-  opts: { lazyAudioDecoder?: boolean } = {}
+  opts: { lazyAudioDecoder?: boolean; withAudioDecoder?: boolean } = {}
 ) {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'qvac-bundle-project-'))
   const sdkPath = path.join(projectRoot, 'external-sdk')
@@ -45,6 +45,27 @@ function fakeBundleSdkProject(
     'export function getServerLogger() { return { info() {} } }\n'
   )
   fs.writeFileSync(path.join(sdkDistPath, 'llm-plugin.js'), 'export const llmPlugin = {}\n')
+
+  if (opts.withAudioDecoder) {
+    fs.writeFileSync(
+      path.join(sdkDistPath, 'llm-plugin.js'),
+      'export const llmPlugin = { decode: () => import("@qvac/decoder-audio") }\n'
+    )
+    for (const name of ['@qvac/decoder-audio', 'bare-ffmpeg']) {
+      const dir = path.join(sdkPath, 'node_modules', name)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(
+        path.join(dir, 'package.json'),
+        JSON.stringify({ name, type: 'module', main: 'index.js', addon: name === 'bare-ffmpeg' })
+      )
+      fs.writeFileSync(
+        path.join(dir, 'index.js'),
+        name === 'bare-ffmpeg'
+          ? 'export default {}\n'
+          : 'import "bare-ffmpeg"; export class FFmpegDecoder {}\n'
+      )
+    }
+  }
 
   const inferenceDist = path.join(sdkPath, 'node_modules', '@qvac', 'inference', 'dist', 'plugins')
   fs.mkdirSync(inferenceDist, { recursive: true })
@@ -237,6 +258,33 @@ describe('generateWorkerEntry', () => {
 })
 
 describe('bundleSdk worker entries', () => {
+  it('rejects an explicit decoder defer with an older inference runtime', async (t) => {
+    const { projectRoot, sdkPath, configPath, outputDir } = fakeBundleSdkProject(t)
+    await assert.rejects(
+      bundleSdk({ projectRoot, sdkPath, configPath, defer: ['@qvac/decoder-audio'], quiet: true }),
+      ConfigValidationFailedError
+    )
+    assert.ok(!fs.existsSync(outputDir), 'fails before generating worker files')
+  })
+
+  it('preserves a missing inference package error as the cause of a structured error', async (t) => {
+    const { projectRoot, sdkPath, configPath, outputDir } = fakeBundleSdkProject(t)
+    const manifestPath = path.join(sdkPath, 'node_modules', '@qvac', 'inference', 'package.json')
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+    delete manifest.exports['./package']
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest))
+    await assert.rejects(
+      bundleSdk({ projectRoot, sdkPath, configPath, defer: ['@qvac/decoder-audio'], quiet: true }),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigValidationFailedError)
+        assert.ok(error.cause instanceof Error)
+        assert.match(error.message, /includeAudioDecoder/)
+        return true
+      }
+    )
+    assert.ok(!fs.existsSync(outputDir), 'fails before generating worker files')
+  })
+
   it('rejects decoder opt-out for the selected SDK with an older inference runtime', async (t) => {
     const { projectRoot, sdkPath, configPath, outputDir } = fakeBundleSdkProject(t)
     fs.writeFileSync(configPath, JSON.stringify({ includeAudioDecoder: false }))
@@ -254,8 +302,19 @@ describe('bundleSdk worker entries', () => {
 
   it('allows decoder opt-out when the selected inference runtime supports it', async (t) => {
     const { projectRoot, sdkPath, configPath, outputDir } = fakeBundleSdkProject(t, {
-      lazyAudioDecoder: true
+      lazyAudioDecoder: true,
+      withAudioDecoder: true
     })
+    const options = {
+      projectRoot,
+      sdkPath,
+      configPath,
+      hosts: [`${process.platform}-${process.arch}`],
+      quiet: true
+    }
+    const initial = await bundleSdk(options)
+    const before = JSON.parse(fs.readFileSync(initial.manifestPath, 'utf8'))
+    assert.ok(before.addons.includes('bare-ffmpeg'), 'default bundle includes the decoder addon')
     fs.writeFileSync(
       configPath,
       JSON.stringify({
@@ -272,6 +331,13 @@ describe('bundleSdk worker entries', () => {
       quiet: true
     })
     assert.ok(fs.existsSync(path.join(outputDir, 'worker.bundle.js')))
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(outputDir, 'addons.manifest.json'), 'utf8')
+    )
+    assert.ok(
+      !manifest.addons.includes('bare-ffmpeg'),
+      'raw-only bundle excludes the decoder addon'
+    )
   })
 
   it('uses resolved imports for bare-pack but writes a relocatable runtime entry', async (t) => {

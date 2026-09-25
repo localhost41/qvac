@@ -4,6 +4,7 @@ import { formatZodError } from '@/utils/zod-error'
 import { z } from 'zod'
 
 /** Bundler options; runtime support is checked against the SDK being bundled. */
+// Remove this schema extension once the SDK requires an inference release that includes the key.
 const bundlerConfigSchema = z.object({
   includeAudioDecoder: z.boolean().optional()
 })

@@ -53,9 +53,18 @@ export function resolveDeferredModules(
 }
 
 async function assertAudioDecoderOptOutSupported(sdkPath: string): Promise<void> {
-  const manifestPath = require.resolve('@qvac/inference/package', {
-    paths: [fs.realpathSync(sdkPath)]
-  })
+  let manifestPath: string
+  try {
+    manifestPath = require.resolve('@qvac/inference/package', {
+      paths: [fs.realpathSync(sdkPath)]
+    })
+  } catch (cause) {
+    throw new ConfigValidationFailedError(
+      'Cannot verify audio decoder opt-out support in the selected SDK. ' +
+        'Install its @qvac/inference dependency, or keep includeAudioDecoder enabled and do not defer @qvac/decoder-audio.',
+      cause
+    )
+  }
   // Inspect the worker's runtime without importing a second engine (which can
   // register conflicting error codes in the bundler process).
   const manifest = JSON.parse(await fsp.readFile(manifestPath, 'utf8')) as {
@@ -63,8 +72,8 @@ async function assertAudioDecoderOptOutSupported(sdkPath: string): Promise<void>
   }
   if (manifest.qvac?.optionalAudioDecoder !== true) {
     throw new ConfigValidationFailedError(
-      'includeAudioDecoder: false requires an @qvac/inference runtime with lazy audio decoder support. ' +
-        'Update the inference package used by the SDK being bundled, or omit includeAudioDecoder to keep the decoder bundled.'
+      'includeAudioDecoder: false or deferring @qvac/decoder-audio requires an @qvac/inference runtime with lazy audio decoder support. ' +
+        'Update the inference package used by the SDK being bundled, or enable includeAudioDecoder and remove any @qvac/decoder-audio defer.'
     )
   }
 }
@@ -150,7 +159,8 @@ export async function bundleSdk(options: BundleSdkOptions = {}): Promise<BundleS
   }
 
   const sdkPath = resolveSdkPath(projectRoot, options.sdkPath)
-  if (config.includeAudioDecoder === false) {
+  const deferModules = resolveDeferredModules(config, options.defer ?? [])
+  if (deferModules.includes(AUDIO_DECODER_MODULE)) {
     await assertAudioDecoderOptOutSupported(sdkPath)
   }
   const sdkName = await resolveSdkName(sdkPath)
@@ -167,8 +177,6 @@ export async function bundleSdk(options: BundleSdkOptions = {}): Promise<BundleS
   }
 
   const hosts = options.hosts && options.hosts.length > 0 ? options.hosts : DEFAULT_HOSTS
-
-  const deferModules = resolveDeferredModules(config, options.defer ?? [])
 
   await fsp.mkdir(outputDir, { recursive: true })
 
