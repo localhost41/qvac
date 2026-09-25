@@ -2,25 +2,33 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FIT_STATUS = void 0;
 exports.fitParams = fitParams;
+exports.fitParamsAsync = fitParamsAsync;
 /* eslint-disable @typescript-eslint/no-require-imports -- Bare modules expose CommonJS export shapes. */
 const fs = require("bare-fs");
 const path = require("bare-path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- native binding is resolved lazily from package prebuilds.
 const binding = require('./binding');
-// Where this package's own ggml backends are installed, mirroring
-// @qvac/llm-llamacpp's addon.js. `BACKENDS_SUBDIR` (<target>/<module>) is
-// appended natively, so this is the `prebuilds` root rather than the leaf.
-//
-// Since qvac-fabric 9840 the ggml backends ship as separate shared libraries
-// rather than static archives, and ggml's default search path (executable
-// directory, cwd) does not cover an npm package's prebuilds. Without this the
-// CPU backend never loads and every fit fails with "no CPU backend found".
-// Resolved once, and only when it exists, so a statically linked build still
-// falls back to ggml's own search.
-const PACKAGED_BACKENDS_DIR = path.join(__dirname, 'prebuilds');
-function defaultBackendsDir() {
+// The ggml compute backends (GGML_BACKEND_DL modules) ship exactly once, in the
+// @qvac/fabric dependency (prebuilds/<host>/qvac__fabric). We deliberately do
+// not copy them into this addon. On desktop, resolve the single @qvac/fabric
+// install. On mobile the package tree isn't resolvable at runtime (the worklet
+// runs from a packed bundle), so fall back to this addon's own prebuilds.
+// Native code appends BACKENDS_SUBDIR ("<host>/qvac__fabric") to the root.
+// Return undefined only when neither directory exists, so a statically linked
+// build still skips backendsDir.
+function resolveBackendsDir() {
     try {
-        return fs.statSync(PACKAGED_BACKENDS_DIR).isDirectory() ? PACKAGED_BACKENDS_DIR : undefined;
+        const fabricPkg = require.resolve('@qvac/fabric/package');
+        const fabricPrebuilds = path.join(path.dirname(fabricPkg), 'prebuilds');
+        if (fs.statSync(fabricPrebuilds).isDirectory())
+            return fabricPrebuilds;
+    }
+    catch {
+        // Mobile worklets cannot resolve the @qvac/fabric package tree.
+    }
+    try {
+        const packaged = path.join(__dirname, 'prebuilds');
+        return fs.statSync(packaged).isDirectory() ? packaged : undefined;
     }
     catch {
         return undefined;
@@ -35,6 +43,9 @@ exports.FIT_STATUS = Object.freeze({
 const UINT32_MAX = 4294967295;
 const INT32_MAX = 2147483647;
 const INT32_MIN = -2147483648;
+// LLAMA_SPLIT_MODE_ROW. Inside the enum domain but not accepted: fabric
+// deprecates it and no supported backend provides the split buffers it needs.
+const SPLIT_MODE_ROW = 2;
 // Every numeric field crosses into C++ as a uint32_t or int32_t. Fractions
 // truncate there and out-of-range values wrap, so `marginMiB: -1` would silently
 // become a ~4 PiB margin that nothing can ever satisfy. Reject at the boundary.
@@ -70,6 +81,9 @@ function validateNumber(config, key, min, max) {
     if (value < min || value > max) {
         throw new RangeError(`model-fit: config.${key} must be between ${min} and ${max}`);
     }
+    if (key === 'splitMode' && value === SPLIT_MODE_ROW) {
+        throw new RangeError('model-fit: config.splitMode 2 (ROW) is not accepted; use 1 (LAYER) or 3 (TENSOR)');
+    }
 }
 // Relationships the native side would otherwise accept and the fitter would
 // then either reject obscurely or silently reinterpret.
@@ -89,26 +103,8 @@ function validateRelationships(config) {
         throw new RangeError('model-fit: config.mainGpu -1 requires config.nGpuLayers 0 and config.splitMode NONE');
     }
 }
-/**
- * Memory-fit preflight for a llama.cpp GGUF model. Runs `common_fit_params`,
- * which simulates allocations (no weights are loaded) to project whether the
- * model fits available device memory and, if so, with which offload plan.
- *
- * This is a synchronous, blocking in-process native call. Callers that need
- * isolation should use `@qvac/model-fit/process` to run it in a disposable
- * Bare subprocess.
- *
- * Calls are serialised process-wide: `common_fit_params` mutates global llama
- * logger state and is not thread safe, so concurrent callers block instead of
- * running together.
- *
- * Backends must be registered before the fitter can see any device, so pass
- * `backendsDir` wherever the packaged ggml backends ship as separate shared
- * libraries; omit it for a statically linked build, which self-registers.
- * Every backend library in that directory is `dlopen`ed into this process, so
- * it must be an application-controlled location — never remote or user input.
- */
-function fitParams(config) {
+// Validation and backendsDir resolution shared by both entry points.
+function prepareFitConfig(config) {
     if (config === null || config === undefined || typeof config !== 'object' || Array.isArray(config)) {
         throw new TypeError('model-fit: config object is required');
     }
@@ -136,10 +132,41 @@ function fitParams(config) {
     // silently replaced by ours.
     let resolved = config;
     if (config.backendsDir === undefined) {
-        const packaged = defaultBackendsDir();
+        const packaged = resolveBackendsDir();
         if (packaged !== undefined) {
             resolved = { ...config, backendsDir: packaged };
         }
     }
-    return binding.paramsFit(resolved);
+    return resolved;
+}
+/**
+ * Memory-fit preflight for a llama.cpp GGUF model. Runs `common_fit_params`,
+ * which simulates allocations (no weights are loaded) to project whether the
+ * model fits available device memory and, if so, with which offload plan.
+ *
+ * This is a synchronous, blocking in-process native call; `fitParamsAsync`
+ * runs the same fit on a worker thread. Callers that need isolation should use
+ * `@qvac/model-fit/process` to run it in a disposable Bare subprocess.
+ *
+ * Calls are serialised process-wide: `common_fit_params` mutates global llama
+ * logger state and is not thread safe, so concurrent callers block instead of
+ * running together.
+ *
+ * Backends must be registered before the fitter can see any device. When
+ * `backendsDir` is omitted this package resolves `@qvac/fabric`'s `prebuilds/`
+ * (desktop) or this addon's `prebuilds/` (mobile worklet). Omit only for a
+ * statically linked build, which self-registers.
+ * Every backend library in that directory is `dlopen`ed into this process, so
+ * it must be an application-controlled location — never remote or user input.
+ */
+function fitParams(config) {
+    return binding.paramsFit(prepareFitConfig(config));
+}
+/**
+ * `fitParams` on a worker thread: same config, validation and result, without
+ * blocking the JS loop. Validation failures reject. Fits stay serialised
+ * process-wide.
+ */
+async function fitParamsAsync(config) {
+    return binding.paramsFitAsync(prepareFitConfig(config));
 }

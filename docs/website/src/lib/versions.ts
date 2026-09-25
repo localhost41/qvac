@@ -40,10 +40,12 @@ export interface VersionedSection {
 
 export const API_SECTION: VersionedSection = {
   basePath: '/reference/api',
-  latest: 'v0.18.2',
-  latestSeries: 'v0.18.x',
+  latest: 'v0.20.0',
+  latestSeries: 'v0.20.x',
   versions: [
-    { label: 'v0.18.x (latest)', value: 'v0.18.x', isLatest: true },
+    { label: 'v0.20.x (latest)', value: 'v0.20.x', isLatest: true },
+    { label: 'v0.19.x', value: 'v0.19.x' },
+    { label: 'v0.18.x', value: 'v0.18.x' },
     { label: 'v0.17.x', value: 'v0.17.x' },
     { label: 'v0.16.x', value: 'v0.16.x' },
     { label: 'v0.15.x', value: 'v0.15.x' },
@@ -59,10 +61,12 @@ export const API_SECTION: VersionedSection = {
 
 export const RELEASE_NOTES_SECTION: VersionedSection = {
   basePath: '/reference/release-notes',
-  latest: 'v0.18.2',
-  latestSeries: 'v0.18.x',
+  latest: 'v0.20.0',
+  latestSeries: 'v0.20.x',
   versions: [
-    { label: 'v0.18.x (latest)', value: 'v0.18.x', isLatest: true },
+    { label: 'v0.20.x (latest)', value: 'v0.20.x', isLatest: true },
+    { label: 'v0.19.x', value: 'v0.19.x' },
+    { label: 'v0.18.x', value: 'v0.18.x' },
     { label: 'v0.17.x', value: 'v0.17.x' },
     { label: 'v0.16.x', value: 'v0.16.x' },
     { label: 'v0.15.x', value: 'v0.15.x' },
@@ -76,7 +80,7 @@ export const RELEASE_NOTES_SECTION: VersionedSection = {
   ],
 };
 
-const VERSIONED_SECTIONS: VersionedSection[] = [
+export const VERSIONED_SECTIONS: VersionedSection[] = [
   API_SECTION,
   RELEASE_NOTES_SECTION,
 ];

@@ -17,6 +17,16 @@
 
 #if defined(__ANDROID__) || defined(__linux__)
 #include <dlfcn.h>
+#elif defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <array>
+
+#include <windows.h>
 #endif
 
 #include <ggml-backend.h>
@@ -26,6 +36,7 @@
 #include "addon/AsrErrors.hpp"
 #include "inference-addon-cpp/Errors.hpp"
 #include "inference-addon-cpp/Logger.hpp"
+#include "model-interface/WhisperGpuSelection.hpp"
 #include "model-interface/WhisperTypes.hpp"
 
 namespace qvac::asrggml::whisper {
@@ -78,11 +89,11 @@ auto WhisperModel::formatCaptionOutput(Transcript& transcript) -> void {
                     std::to_string(static_cast<int>(transcript.end)) + "|>";
 }
 
-#if defined(__ANDROID__) || defined(__linux__)
+#if defined(__ANDROID__) || defined(__linux__) || defined(_WIN32)
 namespace {
 // Join a prebuilds root with the cmake-bare per-target module subdir
 // (BACKENDS_SUBDIR == "<bare_target>/<module_name>", set in CMakeLists) to get
-// the directory the ggml-speech port staged the dlopenable CPU/GPU `.so`
+// the directory the ggml-speech port staged the runtime-loadable CPU/GPU
 // modules into.
 std::filesystem::path joinBackendsSubdir(const std::filesystem::path& root) {
 #ifdef BACKENDS_SUBDIR
@@ -92,25 +103,57 @@ std::filesystem::path joinBackendsSubdir(const std::filesystem::path& root) {
 #endif
 }
 
+// Resolve the addon's own on-disk path from a symbol inside it: dladdr on
+// POSIX, GetModuleHandleEx(FROM_ADDRESS) on Windows. Both resolve to this
+// addon rather than the host because bare loads addons as their own modules
+// (RTLD_LOCAL on POSIX; mirrors inference-addon-cpp's Pin.hpp). Returns an
+// empty path when the addon can't be located.
+std::filesystem::path addonModulePath() {
+#if defined(_WIN32)
+  HMODULE module = nullptr;
+  // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
+  const auto* selfSymbol = reinterpret_cast<LPCSTR>(&addonModulePath);
+  // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+  if (GetModuleHandleExA(
+          GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+          selfSymbol,
+          &module) == 0 ||
+      module == nullptr) {
+    return {};
+  }
+  std::array<char, MAX_PATH> moduleFileName{};
+  const DWORD length = GetModuleFileNameA(
+      module, moduleFileName.data(), static_cast<DWORD>(moduleFileName.size()));
+  if (length == 0 || length >= moduleFileName.size()) {
+    return {};
+  }
+  return std::filesystem::path(std::string(moduleFileName.data(), length));
+#else
+  Dl_info info{};
+  // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
+  const void* selfSymbol = reinterpret_cast<const void*>(&addonModulePath);
+  // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+  if (dladdr(selfSymbol, &info) == 0 || info.dli_fname == nullptr) {
+    return {};
+  }
+  return std::filesystem::path(info.dli_fname);
+#endif
+}
+
 // Resolve the prebuilds root from the addon's own on-disk location, so a caller
 // that omits configurationParams.backendsDir (e.g. a direct WhisperInterface
 // consumer) still finds the sibling backends. The addon binary lives at
 // <prebuilds>/<bare_target>/<module_name>.bare and the backends install under
 // <prebuilds>/BACKENDS_SUBDIR (== <bare_target>/<module_name>), so the
-// prebuilds root is the addon's grandparent directory. dladdr resolves to this
-// addon because bare loads addons RTLD_LOCAL (mirrors inference-addon-cpp's
-// Pin.hpp). Returns an empty path when the addon can't be located.
+// prebuilds root is the addon's grandparent directory. Returns an empty path
+// when the addon can't be located.
 std::filesystem::path prebuildsDirFromAddonLocation() {
-  Dl_info info{};
-  // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
-  const void* selfSymbol =
-      reinterpret_cast<const void*>(&prebuildsDirFromAddonLocation);
-  // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
-  if (dladdr(selfSymbol, &info) == 0 || info.dli_fname == nullptr) {
+  const std::filesystem::path addonPath = addonModulePath();
+  if (addonPath.empty()) {
     return {};
   }
   std::error_code ec;
-  const std::filesystem::path addonPath(info.dli_fname);
   const std::filesystem::path prebuildsDir =
       addonPath.parent_path().parent_path();
   if (prebuildsDir.empty() || !std::filesystem::exists(prebuildsDir, ec)) {
@@ -127,16 +170,18 @@ void loadBackendsFromRoot(const std::filesystem::path& root) {
   ggml_backend_load_all_from_path(variantsDir.string().c_str());
 }
 
-// Android, desktop linux-arm64, and linux-x64-with-CUDA builds ship ggml
-// with `GGML_BACKEND_DL=ON`, so no backend is statically registered. dlopen
-// the per-arch CPU + GPU `.so` modules once per process before whisper_init;
-// otherwise it aborts on a NULL CPU device. On static linux-x64 builds the
-// scan finds no modules and the statically registered backends stay in
-// charge, so calling this unconditionally on Linux is safe. Prefer the
+} // namespace
+
+// Android, desktop linux-arm64, and CUDA-enabled linux-x64 / win32-x64
+// builds ship ggml with `GGML_BACKEND_DL=ON`, so no backend is statically
+// registered. Load the per-arch CPU + GPU modules once per process before
+// whisper_init; otherwise it aborts on a NULL CPU device. On static builds
+// the scan finds no modules and the statically registered backends stay in
+// charge, so calling this unconditionally is safe. Prefer the
 // runtime-supplied backendsDir; when it is omitted, self-locate the addon's
 // own prebuilds dir before falling back to ggml_backend_load_all() (whose
-// default search path scans the host executable's dir, not the addon's, so it
-// misses the renamed `libqvac-speech-ggml-*.so` modules).
+// default search path scans the host executable's dir, not the addon's, so
+// it misses the renamed `qvac-speech-ggml-*` modules).
 // Mirrors packages/{diffusion-cpp,llm-llamacpp,classification-ggml,…}.
 void ensureBackendsLoaded(const std::string& backendsDir) {
   static std::once_flag flag;
@@ -166,8 +211,7 @@ void ensureBackendsLoaded(const std::string& backendsDir) {
     ggml_backend_load_all();
   });
 }
-} // namespace
-#endif // __ANDROID__ || __linux__
+#endif // __ANDROID__ || __linux__ || _WIN32
 
 namespace {
 std::string toLowerCopy(std::string value) {
@@ -263,11 +307,45 @@ int adrenoOpenclGpuDeviceIndex() {
 void WhisperModel::load() {
   if (!ctx_) {
 
-#if defined(__ANDROID__) || defined(__linux__)
+#if defined(__ANDROID__) || defined(__linux__) || defined(_WIN32)
     ensureBackendsLoaded(cfg_.backendsDir);
 #endif
 
     whisper_context_params contextParams = toWhisperContextParams(cfg_);
+    bool reportMissingGpuFallback = false;
+
+    // Resolve the raw registry identity before translating to Whisper's
+    // GPU/IGPU ordinal. An excluded explicit target falls back only to CPU.
+    if (contextParams.use_gpu &&
+        !cfg_.whisperContextCfg.contains("gpu_device")) {
+      const auto selected = main_gpu::resolveWhisperLoadSelection(
+          contextParams.use_gpu,
+          contextParams.gpu_device,
+          false,
+          cfg_.whisperContextCfg);
+      if (selected.outOfRange) {
+        QLOG(
+            qvac_lib_inference_addon_cpp::logger::Priority::WARNING,
+            "main-gpu registry index is out of range; using normal GPU "
+            "selection");
+      }
+      contextParams.use_gpu = selected.useGpu;
+      if (contextParams.use_gpu) {
+        contextParams.gpu_device = selected.gpuDevice;
+      } else if (!selected.refused.empty()) {
+        std::string message =
+            "GPU execution requested but no eligible device is available; "
+            "falling back to CPU. Refused GPU-type devices:";
+        for (const auto& identity : selected.refused) {
+          message += " [" + identity + "]";
+        }
+        QLOG(
+            qvac_lib_inference_addon_cpp::logger::Priority::WARNING,
+            message.c_str());
+      } else {
+        reportMissingGpuFallback = selected.warnMissingGpuFallback;
+      }
+    }
 
     // Adreno guard: when ggml registers an Adreno OpenCL device (Android,
     // where it also registers a Vulkan device for the same GPU and Vulkan is
@@ -275,7 +353,8 @@ void WhisperModel::load() {
     // driver SIGSEGVs in ggml compute (vkCmdBindPipeline), whereas OpenCL is
     // the supported Adreno backend. No-op on Mali / desktop (no Adreno OpenCL
     // device registers there), so the proven Mali->Vulkan path is untouched.
-    if (contextParams.use_gpu) {
+    if (contextParams.use_gpu &&
+        cfg_.whisperContextCfg.contains("gpu_device")) {
       const int adrenoOpenclDeviceIndex = adrenoOpenclGpuDeviceIndex();
       if (adrenoOpenclDeviceIndex >= 0 &&
           adrenoOpenclDeviceIndex != contextParams.gpu_device) {
@@ -318,7 +397,9 @@ void WhisperModel::load() {
         qvac_lib_inference_addon_cpp::logger::Priority::INFO,
         "Whisper model loaded successfully");
 
-    captureActiveBackendInfo(contextParams.use_gpu, contextParams.gpu_device);
+    captureActiveBackendInfo(
+        contextParams.use_gpu || reportMissingGpuFallback,
+        contextParams.gpu_device);
 
     // Warm up the model on first load to avoid first-segment delay
     if (!is_warmed_up_) {
@@ -780,9 +861,9 @@ void WhisperModel::cancel() const {
 bool WhisperModel::configContextIsChanged(
     const WhisperConfig& oldCfg, const WhisperConfig& newCfg) {
   // Context parameters that require reload: model, use_gpu, flash_attn,
-  // gpu_device
+  // gpu_device, main-gpu, main_gpu
   const std::vector<std::string> contextKeys = {
-      "model", "use_gpu", "flash_attn", "gpu_device"};
+      "model", "use_gpu", "flash_attn", "gpu_device", "main-gpu", "main_gpu"};
 
   return std::ranges::any_of(contextKeys, [&](const std::string& key) {
     const auto oldIt = oldCfg.whisperContextCfg.find(key);

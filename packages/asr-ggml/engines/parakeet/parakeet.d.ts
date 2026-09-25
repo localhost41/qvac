@@ -12,9 +12,13 @@ export interface ParakeetConfigurationParams {
     captionEnabled?: boolean;
     timestampsEnabled?: boolean;
     seed?: number;
-    /** Multilingual CTC language id; required for Indic Conformer GGUFs. */
+    /** Indic CTC language id or Nemotron locale alias; empty selects auto. */
     language?: string;
     streaming?: boolean;
+    /**
+     * Model-specific when omitted: Nemotron 320 ms, Unified RNN-T 560 ms,
+     * existing models 2000 ms.
+     */
     streamingChunkMs?: number;
     streamingHistoryMs?: number;
     streamingEmitPartials?: boolean;

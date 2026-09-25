@@ -3,8 +3,8 @@ import { ParakeetInterface, type ParakeetConfigurationParams, type StreamingConf
 import type { ASRRunOutput, AudioInput, BackendInfo } from "../../lib/types";
 import type { ASRGgmlFiles, ASRGgmlReloadConfig, ASRStreamingOptions, AsrDriver, DriverContext, NormalizedAudioStream, StreamingSession } from "../types";
 /**
- * Parakeet-specific configuration options. The model type (CTC, TDT, EOU,
- * or Sortformer) is auto-detected from the loaded GGUF metadata.
+ * Parakeet-specific configuration options. CTC, TDT, RNN-T, EOU, Nemotron,
+ * and Sortformer are auto-detected from the loaded GGUF metadata.
  */
 export interface ParakeetConfig {
     /** Maximum CPU threads for inference (0 lets the engine pick). */
@@ -22,9 +22,9 @@ export interface ParakeetConfig {
     /** Random seed for reproducibility (-1 for random, default: -1). */
     seed?: number;
     /**
-     * Multilingual CTC language id (e.g. `"hi"`, `"ta"`). Required for GGUFs
-     * that advertise `parakeet.ctc.lang_*` ranges (Indic Conformer); ignored on
-     * monolingual CTC. Empty keeps full-vocab greedy decode.
+     * Indic CTC language id or Nemotron locale alias (for example `"en-US"`,
+     * `"hi-IN"`, or `"auto"`). Empty selects `"auto"` for Nemotron and keeps
+     * full-vocabulary greedy decode for CTC.
      */
     language?: string;
     /**
@@ -32,17 +32,26 @@ export interface ParakeetConfig {
      * preserved within one `run()` call, but not across separate calls.
      */
     streaming?: boolean;
-    /** Streaming chunk cadence in milliseconds (default: 2000). */
+    /**
+     * Streaming chunk cadence. Defaults to 320 ms for Nemotron, 560 ms for the
+     * Unified RNN-T model, and 2000 ms for existing models. Nemotron supports
+     * 80, 160, 320, 560, or 1120 ms; Unified RNN-T supports 80, 160, 560, or
+     * 1040 ms and snaps any other value down to the nearest trained chunk.
+     */
     streamingChunkMs?: number;
     /** Sortformer rolling-history window in ms (default: 30000). */
     streamingHistoryMs?: number;
     /** Emit partial segments before chunk boundaries (default: true). */
     streamingEmitPartials?: boolean;
-    /** CTC/TDT-only energy-VAD events (default: false). */
+    /** Optional ASR energy-VAD events (default: false). */
     streamingEnergyVad?: boolean;
     /** ASR encoder left-context window in milliseconds. */
     streamingLeftContextMs?: number;
-    /** ASR encoder right-lookahead window in milliseconds. */
+    /**
+     * ASR encoder right-lookahead window in milliseconds. Unified RNN-T
+     * cache-aware streaming supports 0, 80, 160, 240, 320, 560, or 1040 ms and
+     * snaps any other value down to the nearest trained right context.
+     */
     streamingRightLookaheadMs?: number;
     /** Enable v2.1 Sortformer AOSC speaker-cache streaming (default: true). */
     streamingSpkCacheEnable?: boolean;
@@ -80,7 +89,7 @@ export interface ParakeetReloadConfig {
 /**
  * Parakeet engine driver: owns the `ParakeetInterface`, the parakeet event
  * mapping, and the parakeet streaming lifecycle. Backed by
- * qvac-parakeet.cpp; accepts CTC, TDT, EOU, and Sortformer GGUF
+ * speech-cpp; accepts CTC, TDT, RNN-T, EOU, Nemotron, and Sortformer GGUF
  * checkpoints.
  */
 export declare class ParakeetDriver implements AsrDriver {
@@ -103,7 +112,7 @@ export declare class ParakeetDriver implements AsrDriver {
     createStreamingSession(audio: NormalizedAudioStream, opts?: ASRStreamingOptions): Promise<StreamingSession>;
     _validateStreamingOptions(opts: ASRStreamingOptions): ParakeetStreamingRunConfig;
     _pumpBatchAudio(audio: NormalizedAudioStream): Promise<void>;
-    _pumpStreamingAudio(audio: NormalizedAudioStream): Promise<void>;
+    _pumpStreamingAudio(audio: NormalizedAudioStream, markClosing: () => void): Promise<void>;
     _buildConfigurationParams(): ParakeetConfigurationParams;
     _createAddon(configurationParams: ParakeetConfigurationParams): ParakeetInterface;
     private _outputCallback;

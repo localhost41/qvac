@@ -77,7 +77,7 @@ function chunkBuffer(chunk) {
 /**
  * Parakeet engine driver: owns the `ParakeetInterface`, the parakeet event
  * mapping, and the parakeet streaming lifecycle. Backed by
- * qvac-parakeet.cpp; accepts CTC, TDT, EOU, and Sortformer GGUF
+ * speech-cpp; accepts CTC, TDT, RNN-T, EOU, Nemotron, and Sortformer GGUF
  * checkpoints.
  */
 class ParakeetDriver {
@@ -162,6 +162,10 @@ class ParakeetDriver {
         const streamingOpts = this._validateStreamingOptions(opts);
         const addon = this._requireAddon();
         const response = this.ctx.job.start();
+        let closing = false;
+        const markClosing = () => {
+            closing = true;
+        };
         try {
             await addon.startStreaming(streamingOpts);
         }
@@ -169,14 +173,21 @@ class ParakeetDriver {
             this.ctx.job.fail(asError(error));
             throw error;
         }
-        void this._pumpStreamingAudio(audio).catch((error) => {
-            void this.addon?.endStreaming().catch(() => { });
+        const pumpDone = this._pumpStreamingAudio(audio, markClosing).catch(async (error) => {
+            markClosing();
+            const teardown = this.addon?.endStreaming().catch(() => { });
             this.ctx.job.fail(asError(error));
+            await teardown;
         });
-        // `endStreaming` already resets the interface state, so settlement of
-        // the response is the end of driver teardown.
-        const done = response.await().then(() => { }, () => { });
-        return { response, done };
+        const responseDone = response.await();
+        const done = Promise.allSettled([responseDone, pumpDone]).then(() => { });
+        return {
+            response,
+            done,
+            get closing() {
+                return closing;
+            },
+        };
     }
     _validateStreamingOptions(opts) {
         for (const key of Object.keys(opts)) {
@@ -210,7 +221,7 @@ class ParakeetDriver {
         this.ctx.logger.debug("Sending end-of-input signal");
         await addon.append({ type: constants_1.END_OF_INPUT });
     }
-    async _pumpStreamingAudio(audio) {
+    async _pumpStreamingAudio(audio, markClosing) {
         const addon = this._requireAddon();
         this.ctx.logger.debug("Start pumping audio into duplex streaming session");
         for await (const chunk of audio) {
@@ -219,6 +230,7 @@ class ParakeetDriver {
             await addon.appendStreamingAudio(chunk);
         }
         this.ctx.logger.debug("Audio stream completed; closing duplex streaming session");
+        markClosing();
         await addon.endStreaming();
     }
     _buildConfigurationParams() {
@@ -234,7 +246,7 @@ class ParakeetDriver {
             seed: this.params.seed ?? -1,
             language: this.params.language || "",
             streaming: this.params.streaming === true,
-            streamingChunkMs: this.params.streamingChunkMs ?? 2000,
+            streamingChunkMs: this.params.streamingChunkMs,
             streamingHistoryMs: this.params.streamingHistoryMs ?? 30000,
             streamingEmitPartials: this.params.streamingEmitPartials !== false,
             streamingEnergyVad: this.params.streamingEnergyVad === true,

@@ -35,6 +35,7 @@ const TTSGgml = require('@qvac/tts-ggml')
 const { runTTS } = require('./runTTS')
 const { resolveRefWavPath } = require('./runChatterboxTTS')
 const { ensureChatterboxModels, ensureChatterboxMtlModels } = require('./downloadModel')
+const { TTS_TEST_THREADS } = require('./testThreads')
 
 const CHATTERBOX_SAMPLE_RATE = 24000
 
@@ -51,7 +52,8 @@ const RELAX = !!(proc.env && proc.env.QVAC_TTS_GPU_SMOKE_RELAX === '1')
 // to validate that follow-up fix once it ships.
 const PROBE_UNSAFE = !!(proc.env && proc.env.QVAC_TTS_KV_PROBE_UNSAFE === '1')
 
-// CI rows that pin the engine's GPU cascade export TTS_CPP_GPU_BACKEND.
+// CI rows that pin the engine's GPU cascade (linux prebuilds bundle CUDA and
+// Vulkan) export TTS_CPP_GPU_BACKEND.
 const PINNED_GPU_BACKEND = (proc.env && proc.env.TTS_CPP_GPU_BACKEND) || ''
 
 // KV dtypes every GPU backend wired into tts-cpp can actually *run the whole
@@ -154,6 +156,7 @@ async function loadChatterbox({ variant, modelDir, refWavPath, language, useGPU,
   const options = {
     files: chatterboxFiles(variant, modelDir),
     referenceAudio: refWavPath,
+    threads: TTS_TEST_THREADS,
     config: {
       language: language || (variant === 'mtl' ? 'es' : 'en'),
       useGPU: !!useGPU

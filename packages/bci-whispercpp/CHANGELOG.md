@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-25
+
+### Added
+
+- Add `contextParams.main-gpu` (alias `main_gpu`) to select a GPU by registry
+  index or by `integrated` / `dedicated` class when `use_gpu` is enabled.
+  Unavailable or refused devices fall back to CPU; out-of-range indices warn
+  and use automatic selection. Cannot be combined with `gpu_device`.
+
+### Changed
+
+- Raise the `speech-cpp` floor to `2026-09-23#1`, which pulls in a `ggml-speech` that fixes a crash in GPU synthesis on NVIDIA GPUs with cooperative-matrix2 support.
+- Raise the `speech-cpp` floor to `2026-09-18`, keeping the speech packages on
+  one engine stack. Nothing in the window touches the whisper engine this
+  package builds, so published behavior is unchanged.
+- Raise the `speech-cpp` floor to `2026-09-16`, keeping the speech packages on
+  one engine stack. Nothing in the window touches the whisper engine this
+  package builds, so published behavior is unchanged.
+
+## [0.9.1] - 2026-09-11
+
+### Changed
+
+- Raise the `speech-cpp` floor to 2026-09-10, aligning bci-whispercpp with
+  the other speech packages on one engine stack. For the whisper engine this
+  brings the silero VAD `use_gpu` crash fix on GPU builds and the whisper
+  memory-fit preflight; the newer ggml-speech it pulls in adds tinyBLAS CPU
+  acceleration on x86 Linux and Apple silicon.
+
+## [0.9.0] - 2026-09-07
+
+### Changed
+
+- `qvac-lib-inference-addon-cpp` dependency floor raised `1.3.3` -> `1.4.0`, which requires libjs 1.32 headers (`bare-headers` >= 1.32). Compile-time only; no API or runtime behaviour change for this package. Released as a minor bump so dependents on `^0.8.x` adopt the new build floor deliberately rather than automatically.
+
 ## [0.8.2] - 2026-09-01
 
 ### Changed

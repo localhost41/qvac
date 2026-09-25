@@ -13,7 +13,8 @@ const {
   readSignal,
   splitHeaderAndBody,
   buildSignal,
-  chunkify
+  chunkify,
+  BCI_TEST_THREADS
 } = require('./helpers')
 const { flattenSegments } = require('@qvac/bci-whispercpp/util')
 
@@ -59,7 +60,7 @@ test(
         files: { model: MODEL_PATH, embedder: EMBEDDER_PATH }
       },
       {
-        whisperConfig: { language: 'en', temperature: 0.0 },
+        whisperConfig: { language: 'en', temperature: 0.0, n_threads: BCI_TEST_THREADS },
         miscConfig: { caption_enabled: false }
       }
     )
@@ -87,7 +88,7 @@ test(
         files: { model: MODEL_PATH, embedder: EMBEDDER_PATH }
       },
       {
-        whisperConfig: { language: 'en', temperature: 0.0 },
+        whisperConfig: { language: 'en', temperature: 0.0, n_threads: BCI_TEST_THREADS },
         miscConfig: { caption_enabled: false },
         bciConfig: bciConfigFor(sample)
       }
@@ -143,7 +144,7 @@ test(
           files: { model: MODEL_PATH, embedder: EMBEDDER_PATH }
         },
         {
-          whisperConfig: { language: 'en', temperature: 0.0 },
+          whisperConfig: { language: 'en', temperature: 0.0, n_threads: BCI_TEST_THREADS },
           miscConfig: { caption_enabled: false },
           bciConfig: day >= 0 ? { day_idx: day } : undefined
         }
@@ -212,7 +213,7 @@ test(
         files: { model: MODEL_PATH, embedder: EMBEDDER_PATH }
       },
       {
-        whisperConfig: { language: 'en', temperature: 0.0 },
+        whisperConfig: { language: 'en', temperature: 0.0, n_threads: BCI_TEST_THREADS },
         miscConfig: { caption_enabled: false },
         bciConfig: bciConfigFor(sample)
       }
@@ -275,7 +276,7 @@ test(
         files: { model: MODEL_PATH, embedder: EMBEDDER_PATH }
       },
       {
-        whisperConfig: { language: 'en', temperature: 0.0 },
+        whisperConfig: { language: 'en', temperature: 0.0, n_threads: BCI_TEST_THREADS },
         miscConfig: { caption_enabled: false },
         bciConfig: bciConfigFor(sample)
       }
@@ -337,7 +338,7 @@ test(
         files: { model: MODEL_PATH, embedder: EMBEDDER_PATH }
       },
       {
-        whisperConfig: { language: 'en', temperature: 0.0 },
+        whisperConfig: { language: 'en', temperature: 0.0, n_threads: BCI_TEST_THREADS },
         miscConfig: { caption_enabled: false },
         bciConfig: bciConfigFor(sample)
       }
@@ -371,3 +372,36 @@ test(
     }
   }
 )
+
+test('native main-gpu rejects unsupported JS values before map conversion', (t) => {
+  const native = require('../../binding')
+  for (const key of ['main-gpu', 'main_gpu']) {
+    for (const value of [{}, [], () => {}, null, undefined, true, 1n]) {
+      t.exception(() => {
+        const handle = native.createInstance(
+          {},
+          {
+            contextParams: { [key]: value },
+            whisperConfig: {},
+            miscConfig: {}
+          },
+          () => {}
+        )
+        // Clean up if a regression lets the invalid configuration through.
+        native.destroyInstance(handle)
+      }, /main-gpu/)
+    }
+  }
+  t.exception(() => {
+    const handle = native.createInstance(
+      {},
+      {
+        contextParams: { 'main-gpu': {}, main_gpu: 0 },
+        whisperConfig: {},
+        miscConfig: {}
+      },
+      () => {}
+    )
+    native.destroyInstance(handle)
+  }, /main-gpu/)
+})

@@ -14,6 +14,154 @@ restarts at `0.1.0`; the two pre-merge histories are preserved verbatim as
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-25
+
+### Changed
+
+- Update the `@qvac/decoder-audio` development dependency to `^0.7.0` for the audio decoding examples.
+- Raise the `ggml-speech` floor to `2026-09-23` and the `speech-cpp` floor to `2026-09-23#1`: the speech ggml now tracks upstream ggml 0.20.2 (was 0.10.2), and fixes a crash in CosyVoice3 GPU synthesis on NVIDIA GPUs with cooperative-matrix2 support. Same models, same GPU backends, no API change.
+
+### Added
+
+- `RuntimeStats.encoderUsedCoreml` for Parakeet: `1` when every offline ASR
+  transcription in the job ran its encoder on the Core ML sidecar, `0` when any
+  fell back to ggml. `encoderOnCoreml` keeps reporting only that a sidecar
+  loaded. The field is absent after Sortformer diarization and streaming jobs,
+  where the engine does not report per-call routing.
+- Cache-aware streaming for `parakeet-unified-en-0.6b`. The engine keeps
+  per-layer attention and convolution caches across steps instead of
+  re-encoding a sliding window, so `streamingChunkMs` now selects a trained
+  operating point: 80, 160, 560, or 1040 ms, with `streamingRightLookaheadMs`
+  at 0, 80, 160, 240, 320, 560, or 1040 ms. Values outside those sets snap
+  down to the nearest trained one. Omitting `streamingChunkMs` now yields
+  560 ms for this model instead of the generic 2000 ms.
+
+### Changed
+
+- Raise the `speech-cpp` floor to `2026-09-18#1`, keeping the speech packages on
+  one engine stack. The pinned engine adds cache-aware streaming for the
+  Unified RNN-T model; its streaming encoder stays on ggml even when a Core ML
+  sidecar is staged.
+- Raise the `speech-cpp` floor to `2026-09-18`, keeping the speech packages on
+  one engine stack. The pinned engine adds an Apple-only Core ML sidecar for the
+  Parakeet Unified RNN-T encoder, presence-driven on a compiled `.mlmodelc` next
+  to the model file and falling back to ggml without it, so published behavior
+  is unchanged unless that file is shipped.
+- Raise the `speech-cpp` floor to `2026-09-16`, keeping the speech packages on
+  one engine stack. The pinned engine adds an Apple-only Core ML sidecar for
+  the Sortformer v2.1 diarization encoder (batch and AOSC), presence-driven on
+  compiled `.mlmodelc` files next to the model file, so published behavior is
+  unchanged unless those files are shipped.
+- Add Whisper `contextParams["main-gpu"]` / `contextParams.main_gpu` selection
+  for raw ggml registry indices plus `dedicated` and `integrated` classes.
+  The selector is mutually exclusive with `gpu_device`, does not enable GPU by
+  itself, falls back to CPU with a warning when no eligible GPU backend is
+  available, and normalizes Adreno OpenCL as integrated.
+
+## [0.5.3] - 2026-09-17
+
+- Fix recovery requests being rejected while a closing streaming session finishes native teardown.
+
+## [0.5.2] - 2026-09-16
+
+### Fixed
+
+- Mobile platform packages (`@qvac/asr-ggml-android-arm64`, `@qvac/asr-ggml-ios`)
+are no longer `os`-filtered `optionalDependencies` of the meta package. No
+build host ever reports a mobile `os`, so installers could never select them
+during a cross-build and mobile bundles failed verification with missing
+prebuilds. They now publish without install filters; mobile applications
+declare the target's platform package as a direct dependency pinned to the
+exact meta package version.
+
+## [0.5.1] - 2026-09-16
+
+### Changed
+
+- The binding loader now verifies that `require.addon()` returned an ASR native
+binding before using it. If the result is the JavaScript package entry, loading
+falls through to `#host-addon`; the resolved platform package is validated as
+well, and the original lookup failure is retained as the error cause for clearer
+diagnostics. This prevents initialization failures caused by missing native
+methods such as `setLogger` while preserving local source-build behavior.
+
+## [0.5.0] - 2026-09-11
+
+### Added
+
+- The published linux-x64 prebuild ships the CUDA backend again, next to
+  Vulkan and the CPU variants: with the per-platform prebuild packages the
+  CUDA module no longer pushes one npm tarball over the registry size limit.
+  CUDA stays a runtime-loaded module — `use_gpu` / `useGPU` prefers it over
+  Vulkan only where the NVIDIA driver and the CUDA 13 runtime libraries
+  (cudart, cuBLAS) resolve at load time; every other host keeps Vulkan or CPU.
+
+- Extend the opt-in CUDA build (`ASR_CUDA=ON`) from linux-x64 to linux-arm64
+  and win32-x64. On all three platforms the CUDA backend ships as a
+  runtime-loaded module (`.so` on Linux, `.dll` on Windows) staged next to the
+  addon: it engages only where the NVIDIA driver and the CUDA 13 runtime
+  libraries resolve, and hosts without them fall back to Vulkan or CPU exactly
+  as before. The whisper engine's backend loader now also runs on Windows
+  (with addon-relative self-location when `backendsDir` is omitted), which
+  hybrid win32 builds need to register any backend at all. Published
+  linux-arm64 and win32-x64 prebuilds remain CUDA-free. The linux-arm64
+  module natively targets Jetson Orin (8.7), Grace-Hopper (9.0) and GB10 /
+  DGX Spark (12.1), with other Ampere+ parts covered through the bundled
+  8.0 PTX.
+
+- Add NVIDIA Nemotron 3.5 ASR Streaming 0.6B support to the Parakeet engine,
+  including locale prompting, cache-aware streaming operating points,
+  conversion tooling, and a model-specific 320 ms streaming default.
+
+- Run the Parakeet TDT offline encoder on the Apple Neural Engine (Core ML)
+  on darwin-arm64: when an exported `<stem>-encoder.mlmodelc` sidecar sits
+  next to the model, the encoder runs on the ANE while the TDT decoder stays
+  on Metal. The sidecar is picked up by presence alone, one sidecar serves
+  every quantisation of its stem, and the per-run `encoderOnCoreml` stat
+  reports whether it engaged. Covers the offline TDT encoder only. Measured
+  on an Apple M1 Pro: 1.20-1.27x faster than Metal (mean RTF over five runs
+  per variant) — see the package README.
+
+### Changed
+
+- Raise the `speech-cpp` floor to 2026-09-10 and floor `ggml-speech` at
+  2026-09-09#1. The engine window since 0.4.2 brings:
+
+  - Nemotron 3.5 ASR streaming validated on Vulkan and CUDA: the encoder and
+    the fused transducer decode run on the GPU at all five cache-aware
+    operating points, with engine parity tests against NeMo references at
+    each of them. The window also extends the Parakeet Core ML
+    offline-encoder path on Apple platforms and adds Nemotron OpenCL
+    support.
+  - Parakeet CPU transcription 2.2 to 2.6x faster on x86 desktops: the TDT
+    decoder runs as ggml graphs instead of a host loop, positional
+    projections are cached per graph, and the encoder drops several
+    full-tensor copies. ggml now builds with tinyBLAS on linux-x64 and
+    darwin-arm64, and the linux-x64 prebuild ships the per-arch CPU backend
+    modules beside the addon (AVX-512 hosts no longer run the AVX2 kernels),
+    the same hybrid layout the cuda build already used. The window also
+    carries the memory-fit preflight APIs and the hybrid RNN-T head.
+  - Silero VAD now honors `use_gpu`: the compute backends match the weight
+    placement, fixing the ggml_backend_sched abort ("pre-allocated tensor in
+    a buffer that cannot run the operation") that killed every `use_gpu=true`
+    VAD context init on GPU builds (Metal, Vulkan, CUDA, HIP), and the VAD
+    LSTM input is made contiguous to satisfy the CUDA mul-mat-vec kernel's
+    stride requirement. The addon creates its VAD context with the default
+    (CPU) parameters, so runtime behavior is unchanged; the fix matters for
+    anything that opts VAD into the GPU.
+
+- **Per-platform prebuild packages.** `@qvac/asr-ggml` is now a meta package
+  that ships the JavaScript wrapper only; native prebuilds install through
+  `os`/`cpu` filtered `optionalDependencies` (`@qvac/asr-ggml-<platform>-<arch>`,
+  iOS flavours grouped in `@qvac/asr-ggml-ios`), version-locked to the meta
+  package. Breaking for the published file layout:
+  `node_modules/@qvac/asr-ggml/prebuilds` no longer exists in npm installs —
+  use the new `resolveBackendsDir()` export instead of hardcoding that path.
+  Supported installers are npm 7+, pnpm, bun, and Yarn Berry; Yarn v1 and
+  `--omit=optional` installs fail at require time with an error naming the
+  missing platform package. A locally built `prebuilds/` directory keeps
+  taking precedence, so source builds are unaffected.
+
 ## [0.4.2] - 2026-09-01
 
 ### Changed

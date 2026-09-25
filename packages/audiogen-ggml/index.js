@@ -11,20 +11,19 @@
 // streams the engine's output (progress ticks + one interleaved-Int16 PCM
 // chunk) and resolves with the run stats.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RepaintMode = exports.AudioEditOperationType = exports.QvacErrorAudioGen = exports.ERR_CODES = exports.ERR_CODE_RANGE = exports.OUTPUT_FORMATS = exports.pcmToWav = exports.encodePcm = exports.allRegistryPaths = exports.resolveDitModelPath = exports.modelSources = exports.modelManifest = exports.modelFilenames = exports.registryPath = exports.ditFilename = exports.ditVariants = exports.DEFAULT_DIT_VARIANT = exports.DIT_VARIANTS = exports.FIXED_MODELS = exports.REGISTRY_PREFIX = exports.REGISTRY_SOURCE = exports.AudioGen = exports.AudioEditSession = exports.AUDIOGEN_GPU_FALLBACK_REASONS = exports.AUDIOGEN_BACKEND_NAMES = exports.MINIMAX_DEFAULT_MAX_FRAMES = exports.MINIMAX_FRAMES_PER_SECOND = exports.ENGINE_MINIMAX = exports.ENGINE_ACESTEP = void 0;
+exports.RepaintMode = exports.AudioEditOperationType = exports.QvacErrorAudioGen = exports.ERR_CODES = exports.ERR_CODE_RANGE = exports.assessFit = exports.resolveBackendsDir = exports.OUTPUT_FORMATS = exports.pcmToWav = exports.encodePcm = exports.allRegistryPaths = exports.resolveDitModelPath = exports.modelSources = exports.modelManifest = exports.modelFilenames = exports.registryPath = exports.ditFilename = exports.ditVariants = exports.DEFAULT_DIT_VARIANT = exports.DIT_VARIANTS = exports.FIXED_MODELS = exports.REGISTRY_PREFIX = exports.REGISTRY_SOURCE = exports.AudioGen = exports.AudioEditSession = exports.AUDIOGEN_GPU_FALLBACK_REASONS = exports.AUDIOGEN_BACKEND_NAMES = exports.MINIMAX_DEFAULT_MAX_FRAMES = exports.MINIMAX_FRAMES_PER_SECOND = exports.ENGINE_MINIMAX = exports.ENGINE_ACESTEP = void 0;
 exports.audiogenBackendName = audiogenBackendName;
 exports.audiogenGpuFallbackReason = audiogenGpuFallbackReason;
 exports.detectEngineType = detectEngineType;
 const infer_base_1 = require("@qvac/infer-base");
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- @qvac/logging exposes a CommonJS export-assignment shape.
 const QvacLogger = require("@qvac/logging");
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- bare-path is a CommonJS module.
-const path = require("bare-path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- bare-os is a CommonJS module.
 const os = require("bare-os");
 const audiogen_1 = require("./audiogen");
 const models_1 = require("./models");
 const audio_format_1 = require("./lib/audio-format");
+const backends_1 = require("./lib/backends");
 const error_1 = require("./error");
 exports.ENGINE_ACESTEP = 'acestep';
 exports.ENGINE_MINIMAX = 'minimax';
@@ -280,7 +279,9 @@ const ACESTEP_GENERATE_KEYS = [
     'guidanceScale',
     'audioCoverStrength',
     'coverNoiseStrength',
-    'computeQualityScore'
+    'generateLrc',
+    'computeQualityScore',
+    'rewriteQuery'
 ];
 function hasAnyFile(files, keys) {
     return keys.some((key) => files[key] !== undefined);
@@ -492,13 +493,15 @@ class AudioGen {
     _destroyed;
     _cancelPromise;
     _cancellingResponse;
+    _lastLrc;
     _cancelTerminalResolve;
+    _lastUnderstand;
     constructor(options = {}) {
         this._logger = new QvacLogger(options.logger);
         const files = options.files ?? {};
         const config = options.config ?? {};
         this._engineType = detectEngineType(files, options.engine);
-        const backendsDir = config.backendsDir ?? path.join(__dirname, 'prebuilds');
+        const backendsDir = config.backendsDir ?? (0, backends_1.resolveBackendsDir)();
         const threads = requireNonNegativeInt32(config.threads ?? 0, 'threads');
         this._ditVariant = files.ditVariant;
         if (this._engineType === exports.ENGINE_MINIMAX) {
@@ -553,6 +556,7 @@ class AudioGen {
         this._cancelPromise = null;
         this._cancellingResponse = null;
         this._cancelTerminalResolve = null;
+        this._lastLrc = undefined;
     }
     /** Create the native engine and load its GGUF files. Idempotent. */
     async load() {
@@ -612,6 +616,43 @@ class AudioGen {
      * be repeated and are executed in the exact order in which they are chained.
      * Flow-Edit is turbo DiT only (`turbo-q4`, `turbo-q8`).
      */
+    /**
+     * Describe an audio clip through the reverse pipeline: the engine encodes
+     * the PCM, recovers the FSQ semantic codes, and the LM reports metadata and
+     * a caption. `audio` is interleaved stereo float PCM at 48 kHz — the same
+     * layout `sourceAudio` uses. The result streams as an `understand` output
+     * item and is repeated on the terminal stats (`stats.understand`).
+     */
+    async understand(audio, opts = {}) {
+        if (this._engineType === exports.ENGINE_MINIMAX) {
+            throw invalidInput('MiniMax-Music3 does not support audio understanding');
+        }
+        if (!(audio instanceof Float32Array)) {
+            throw invalidInput('understand audio must be a Float32Array');
+        }
+        if (audio.length === 0) {
+            throw invalidInput('understand audio must not be empty');
+        }
+        if (audio.length % 2 !== 0) {
+            throw invalidInput('understand audio must be interleaved stereo (even sample count)');
+        }
+        requireFinitePcm(audio, 'understand audio');
+        const jobData = {
+            type: 'understand',
+            input: '',
+            sourceAudio: audio,
+            seed: optionalFiniteNumber(opts.seed, 'seed', true),
+            vocalLanguage: opts.vocalLanguage,
+            lmTemperature: optionalFiniteNumber(opts.lmTemperature, 'lmTemperature'),
+            lmTopP: optionalFiniteNumber(opts.lmTopP, 'lmTopP'),
+            lmTopK: optionalFiniteNumber(opts.lmTopK, 'lmTopK', true)
+        };
+        const revision = this._lifecycleRevision;
+        return new Promise((resolve, reject) => {
+            const queued = this._runExclusive(() => this._admitAndWait(jobData, revision, resolve, reject));
+            void queued.catch(reject);
+        });
+    }
     edit(source) {
         if (this._engineType === exports.ENGINE_MINIMAX) {
             throw invalidInput('MiniMax-Music3 does not support audio editing');
@@ -638,6 +679,8 @@ class AudioGen {
             throw this._lifecycleError();
         }
         const addon = this._requireAddon();
+        this._lastLrc = undefined;
+        this._lastUnderstand = undefined;
         const response = this._job.start();
         let accepted;
         try {
@@ -717,6 +760,20 @@ class AudioGen {
         if (opts.normalizeLoudness !== undefined && typeof opts.normalizeLoudness !== 'boolean') {
             throw invalidInput('normalizeLoudness must be a boolean');
         }
+        if (opts.generateLrc !== undefined && typeof opts.generateLrc !== 'boolean') {
+            throw invalidInput('generateLrc must be a boolean');
+        }
+        if (opts.generateLrc === true) {
+            if (taskType !== undefined && taskType !== 'text2music') {
+                throw invalidInput("generateLrc requires taskType 'text2music'");
+            }
+            if (opts.lyrics === '[Instrumental]') {
+                throw invalidInput('generateLrc requires lyrics to align');
+            }
+            if (opts.simpleMode !== true && (opts.lyrics === undefined || opts.lyrics === '')) {
+                throw invalidInput('generateLrc requires lyrics to align');
+            }
+        }
         if (opts.computeQualityScore !== undefined && typeof opts.computeQualityScore !== 'boolean') {
             throw invalidInput('computeQualityScore must be a boolean');
         }
@@ -737,6 +794,26 @@ class AudioGen {
                 throw invalidInput('simpleMode requires lmPhase1');
             }
         }
+        if (opts.rewriteQuery !== undefined && typeof opts.rewriteQuery !== 'boolean') {
+            throw invalidInput('rewriteQuery must be a boolean');
+        }
+        if (opts.rewriteQuery === true) {
+            if (opts.simpleMode === true) {
+                throw invalidInput('rewriteQuery cannot be combined with simpleMode');
+            }
+            if (taskType !== undefined && taskType !== 'text2music') {
+                throw invalidInput("rewriteQuery supports only taskType 'text2music'");
+            }
+            if (opts.audioCodes !== undefined) {
+                throw invalidInput('rewriteQuery cannot take pre-supplied audioCodes');
+            }
+            if (opts.lyrics === undefined || opts.lyrics === '' || opts.lyrics === '[Instrumental]') {
+                throw invalidInput("rewriteQuery requires lyric text to preserve (use simpleMode with '[Instrumental]' for an instrumental request)");
+            }
+            if (opts.lmPhase1 === false) {
+                throw invalidInput('rewriteQuery requires lmPhase1');
+            }
+        }
         if (taskType === 'lego' && (opts.track === undefined || !LEGO_TRACKS.has(opts.track))) {
             throw invalidInput(`taskType 'lego' requires track: one of ${[...LEGO_TRACKS].join('|')}`);
         }
@@ -752,7 +829,9 @@ class AudioGen {
             input: caption,
             lyrics: opts.lyrics ?? (opts.simpleMode === true ? '' : '[Instrumental]'),
             simpleMode: opts.simpleMode,
+            rewriteQuery: opts.rewriteQuery,
             normalizeLoudness: opts.normalizeLoudness,
+            generateLrc: opts.generateLrc,
             computeQualityScore: opts.computeQualityScore,
             seed: optionalFiniteNumber(opts.seed, 'seed', true),
             vocalLanguage: opts.vocalLanguage,
@@ -920,11 +999,27 @@ class AudioGen {
             return;
         }
         if (d.outputArray) {
+            this._lastLrc = typeof d.lrc === 'string' ? d.lrc : undefined;
             this._job.output({
                 outputArray: d.outputArray,
                 sampleRate: d.sampleRate ?? 0,
-                channels: d.channels ?? 0
+                channels: d.channels ?? 0,
+                ...(this._lastLrc !== undefined ? { lrc: this._lastLrc } : {})
             });
+            return;
+        }
+        if (d.audioCodes) {
+            const understood = {
+                caption: d.caption ?? '',
+                bpm: d.bpm ?? 0,
+                duration: d.duration ?? 0,
+                keyscale: d.keyscale ?? '',
+                timesignature: d.timesignature ?? '',
+                vocalLanguage: d.vocalLanguage ?? '',
+                audioCodes: d.audioCodes
+            };
+            this._lastUnderstand = understood;
+            this._job.output({ understand: understood });
             return;
         }
         if (typeof d.audioDurationMs === 'number' || typeof d.totalTimeMs === 'number') {
@@ -937,7 +1032,10 @@ class AudioGen {
                 ...(typeof d.gpuFallbackReason === 'number'
                     ? { gpuFallbackReason: d.gpuFallbackReason }
                     : {}),
-                ...(typeof d.qualityScore === 'number' ? { qualityScore: d.qualityScore } : {})
+                ...(typeof d.lyricsScore === 'number' ? { lyricsScore: d.lyricsScore } : {}),
+                ...(this._lastLrc !== undefined ? { lrc: this._lastLrc } : {}),
+                ...(typeof d.qualityScore === 'number' ? { qualityScore: d.qualityScore } : {}),
+                ...(this._lastUnderstand !== undefined ? { understand: this._lastUnderstand } : {})
             };
             this._job.end(stats, stats);
         }
@@ -979,6 +1077,10 @@ var audio_format_2 = require("./lib/audio-format");
 Object.defineProperty(exports, "encodePcm", { enumerable: true, get: function () { return audio_format_2.encodePcm; } });
 Object.defineProperty(exports, "pcmToWav", { enumerable: true, get: function () { return audio_format_2.pcmToWav; } });
 Object.defineProperty(exports, "OUTPUT_FORMATS", { enumerable: true, get: function () { return audio_format_2.SUPPORTED_FORMATS; } });
+var backends_2 = require("./lib/backends");
+Object.defineProperty(exports, "resolveBackendsDir", { enumerable: true, get: function () { return backends_2.resolveBackendsDir; } });
+var fit_1 = require("./lib/fit");
+Object.defineProperty(exports, "assessFit", { enumerable: true, get: function () { return fit_1.assessFit; } });
 var error_2 = require("./error");
 Object.defineProperty(exports, "ERR_CODE_RANGE", { enumerable: true, get: function () { return error_2.ERR_CODE_RANGE; } });
 Object.defineProperty(exports, "ERR_CODES", { enumerable: true, get: function () { return error_2.ERR_CODES; } });

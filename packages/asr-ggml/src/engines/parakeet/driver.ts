@@ -30,8 +30,8 @@ import type {
 } from "../types";
 
 /**
- * Parakeet-specific configuration options. The model type (CTC, TDT, EOU,
- * or Sortformer) is auto-detected from the loaded GGUF metadata.
+ * Parakeet-specific configuration options. CTC, TDT, RNN-T, EOU, Nemotron,
+ * and Sortformer are auto-detected from the loaded GGUF metadata.
  */
 export interface ParakeetConfig {
   /** Maximum CPU threads for inference (0 lets the engine pick). */
@@ -49,9 +49,9 @@ export interface ParakeetConfig {
   /** Random seed for reproducibility (-1 for random, default: -1). */
   seed?: number;
   /**
-   * Multilingual CTC language id (e.g. `"hi"`, `"ta"`). Required for GGUFs
-   * that advertise `parakeet.ctc.lang_*` ranges (Indic Conformer); ignored on
-   * monolingual CTC. Empty keeps full-vocab greedy decode.
+   * Indic CTC language id or Nemotron locale alias (for example `"en-US"`,
+   * `"hi-IN"`, or `"auto"`). Empty selects `"auto"` for Nemotron and keeps
+   * full-vocabulary greedy decode for CTC.
    */
   language?: string;
   /**
@@ -59,17 +59,26 @@ export interface ParakeetConfig {
    * preserved within one `run()` call, but not across separate calls.
    */
   streaming?: boolean;
-  /** Streaming chunk cadence in milliseconds (default: 2000). */
+  /**
+   * Streaming chunk cadence. Defaults to 320 ms for Nemotron, 560 ms for the
+   * Unified RNN-T model, and 2000 ms for existing models. Nemotron supports
+   * 80, 160, 320, 560, or 1120 ms; Unified RNN-T supports 80, 160, 560, or
+   * 1040 ms and snaps any other value down to the nearest trained chunk.
+   */
   streamingChunkMs?: number;
   /** Sortformer rolling-history window in ms (default: 30000). */
   streamingHistoryMs?: number;
   /** Emit partial segments before chunk boundaries (default: true). */
   streamingEmitPartials?: boolean;
-  /** CTC/TDT-only energy-VAD events (default: false). */
+  /** Optional ASR energy-VAD events (default: false). */
   streamingEnergyVad?: boolean;
   /** ASR encoder left-context window in milliseconds. */
   streamingLeftContextMs?: number;
-  /** ASR encoder right-lookahead window in milliseconds. */
+  /**
+   * ASR encoder right-lookahead window in milliseconds. Unified RNN-T
+   * cache-aware streaming supports 0, 80, 160, 240, 320, 560, or 1040 ms and
+   * snaps any other value down to the nearest trained right context.
+   */
   streamingRightLookaheadMs?: number;
   /** Enable v2.1 Sortformer AOSC speaker-cache streaming (default: true). */
   streamingSpkCacheEnable?: boolean;
@@ -191,7 +200,7 @@ function chunkBuffer(chunk: Float32Array): ArrayBuffer {
 /**
  * Parakeet engine driver: owns the `ParakeetInterface`, the parakeet event
  * mapping, and the parakeet streaming lifecycle. Backed by
- * qvac-parakeet.cpp; accepts CTC, TDT, EOU, and Sortformer GGUF
+ * speech-cpp; accepts CTC, TDT, RNN-T, EOU, Nemotron, and Sortformer GGUF
  * checkpoints.
  */
 export class ParakeetDriver implements AsrDriver {
@@ -304,23 +313,37 @@ export class ParakeetDriver implements AsrDriver {
     const streamingOpts = this._validateStreamingOptions(opts);
     const addon = this._requireAddon();
     const response = this.ctx.job.start() as QvacResponse<ASRStreamOutput>;
+    let closing = false;
+    const markClosing = (): void => {
+      closing = true;
+    };
+
     try {
       await addon.startStreaming(streamingOpts);
     } catch (error) {
       this.ctx.job.fail(asError(error));
       throw error;
     }
-    void this._pumpStreamingAudio(audio).catch((error: unknown) => {
-      void this.addon?.endStreaming().catch(() => {});
-      this.ctx.job.fail(asError(error));
-    });
-    // `endStreaming` already resets the interface state, so settlement of
-    // the response is the end of driver teardown.
-    const done = response.await().then(
-      () => {},
-      () => {},
+
+    const pumpDone = this._pumpStreamingAudio(audio, markClosing).catch(
+      async (error: unknown) => {
+        markClosing();
+        const teardown = this.addon?.endStreaming().catch(() => {});
+        this.ctx.job.fail(asError(error));
+        await teardown;
+      }
     );
-    return { response, done };
+
+    const responseDone = response.await();
+    const done = Promise.allSettled([responseDone, pumpDone]).then(() => {});
+
+    return {
+      response,
+      done,
+      get closing(): boolean {
+        return closing;
+      },
+    };
   }
 
   _validateStreamingOptions(
@@ -358,7 +381,10 @@ export class ParakeetDriver implements AsrDriver {
     await addon.append({ type: END_OF_INPUT });
   }
 
-  async _pumpStreamingAudio(audio: NormalizedAudioStream): Promise<void> {
+  async _pumpStreamingAudio(
+    audio: NormalizedAudioStream,
+    markClosing: () => void,
+  ): Promise<void> {
     const addon = this._requireAddon();
     this.ctx.logger.debug(
       "Start pumping audio into duplex streaming session",
@@ -370,6 +396,7 @@ export class ParakeetDriver implements AsrDriver {
     this.ctx.logger.debug(
       "Audio stream completed; closing duplex streaming session",
     );
+    markClosing();
     await addon.endStreaming();
   }
 
@@ -386,7 +413,7 @@ export class ParakeetDriver implements AsrDriver {
       seed: this.params.seed ?? -1,
       language: this.params.language || "",
       streaming: this.params.streaming === true,
-      streamingChunkMs: this.params.streamingChunkMs ?? 2000,
+      streamingChunkMs: this.params.streamingChunkMs,
       streamingHistoryMs: this.params.streamingHistoryMs ?? 30000,
       streamingEmitPartials: this.params.streamingEmitPartials !== false,
       streamingEnergyVad: this.params.streamingEnergyVad === true,

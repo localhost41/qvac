@@ -82,18 +82,17 @@ struct SdCtxConfig {
 
   // -- Memory management -----------------------------------------------------
   bool mmap = false;         // enable_mmap:           memory-map the GGUF file
-  bool offloadToCpu = false; // offload_to_cpu: keep weights in RAM, load
-                             // per-layer to GPU (applied via the engine's
-                             // params_backend assignment spec)
+  bool offloadToCpu = false; // legacy compatibility: maps params to CPU
+  std::string backendSpec; // runtime module assignment, e.g. diffusion=vulkan0
+  std::string
+      paramsBackendSpec;      // parameter residency: cpu, disk, or assignments
+  std::string maxVramSpec;    // graph-cut VRAM budget in GiB or assignments
+  bool streamLayers = false;  // layer residency/prefetch on top of maxVramSpec
   std::string device = "gpu"; // "cpu" or "gpu" -- selects compute backend
   // Optional GPU pick when device == "gpu": a device index, "integrated", or
   // "dedicated" (the discrete GPU with the most VRAM). Empty = let the backend
   // choose. Resolved to a concrete ggml device backend name in SdModel::load().
   std::string mainGpu;
-  bool keepClipOnCpu = false;      // clip_on_cpu: keep CLIP encoder in CPU RAM
-                                   // (params_backend spec "clip=cpu")
-  bool keepVaeOnCpu = false;       // vae_on_cpu:  keep VAE decoder in CPU RAM
-                                   // (params_backend spec "vae=cpu")
   bool vaeAutoCpuFallback = false; // preflight oversized VAE GPU graphs
   float vaeAutoCpuFallbackMemoryRatio = 0.9f;
   // Addon-level contract: when true, encoder-dependent jobs (e.g. LTX
@@ -193,9 +192,38 @@ using SdCtxHandlersMap = std::unordered_map<std::string, SdCtxHandlerFn>;
 /** All supported load-time config keys and their handlers. */
 extern const SdCtxHandlersMap SD_CTX_HANDLERS;
 
+/** True when a params_backend assignment contains the disk backend. */
+bool paramsBackendSpecUsesDisk(const std::string& spec);
+/**
+ * True when the final whole-spec params_backend default differs from CPU.
+ *
+ * The engine accepts a bare backend name and assignments to "*", "all", or
+ * "default" as whole-spec defaults. The last default wins, so any of these
+ * entries can replace the "*=cpu" that offload_to_cpu contributes. Callers use
+ * the final value so an equivalent CPU default does not produce an error.
+ */
+bool paramsBackendSpecOverridesCpuDefault(const std::string& spec);
+/**
+ * True when a max_vram spec syntactically declares a non-zero budget.
+ *
+ * Repeated defaults and backend assignments follow the engine's last-write-wins
+ * order. This does not resolve the selected runtime backend or automatic
+ * negative budgets because the engine determines those from the initialized
+ * backend and its free memory. An unparseable value reads as non-zero because
+ * the engine rejects it with a specific error.
+ */
+bool maxVramSpecHasNonZeroBudget(const std::string& spec);
+
+void validateWorldPlacement(
+    const std::string& paramsBackend, const std::string& maxVram);
+/** Prepends the offload_to_cpu default before explicit module assignments. */
+std::string
+effectiveParamsBackendSpec(const std::string& explicitSpec, bool offloadToCpu);
+
 /**
  * Apply SD_CTX_HANDLERS to configMap, writing results into config.
- * Unknown keys are silently ignored (forward compatibility).
+ * Unknown keys are silently ignored (forward compatibility), except for the
+ * removed CPU-placement options, which throw with migration guidance.
  */
 void applySdCtxHandlers(
     SdCtxConfig& config,

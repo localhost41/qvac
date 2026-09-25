@@ -45,18 +45,21 @@ const {
   ensureCosyvoiceModel
 } = require('../utils/downloadModel')
 const { recordTtsStats } = require('../utils/perf-helper')
+const { TTS_TEST_THREADS } = require('../utils/testThreads')
 
 const platform = os.platform()
 const isMobile = platform === 'ios' || platform === 'android'
 const isApple = platform === 'darwin' || platform === 'ios'
 const GPU_BACKEND_IDS = { metal: 1, cuda: 2, vulkan: 3, opencl: 4 }
-// CI rows that pin the engine's GPU cascade export TTS_CPP_GPU_BACKEND;
-// the assertions expect whatever the row pinned and fall back to the
-// platform's cascade default when unset.
+// CI rows whose prebuild bundles more than one usable GPU backend (the linux
+// runners carry CUDA and Vulkan) pin the engine cascade through
+// TTS_CPP_GPU_BACKEND; the assertions expect whatever the row pinned and fall
+// back to the platform's cascade default when unset.
 const PINNED_GPU_BACKEND = (proc.env && proc.env.TTS_CPP_GPU_BACKEND) || ''
-// Parler GPU coverage is validated on Apple and the Android Device Farm.
-// Keep desktop Vulkan out until dedicated Linux and Windows runs prove it.
-const isParlerGpuPlatform = isApple || platform === 'android'
+// Parler GPU coverage is validated on Apple, the Android Device Farm, and the
+// linux CUDA lane. Keep desktop Vulkan out until dedicated runs prove it there.
+const isParlerGpuPlatform =
+  isApple || platform === 'android' || (platform === 'linux' && PINNED_GPU_BACKEND === 'cuda')
 // CosyVoice3's tts-cpp allowlist is Metal (Apple), OpenCL/Adreno (Android),
 // and Vulkan on desktop hosts, so the strict GPU leg runs everywhere the
 // desktop and mobile GPU runners exist. On Android the engine keeps its
@@ -92,7 +95,7 @@ function backendIdToName(id) {
 // Which platforms wire up a GPU backend in the speech-cpp vcpkg port
 // today (features in qvac-registry-vcpkg/ports/speech-cpp/vcpkg.json):
 //   - darwin / ios:        metal
-//   - linux / win32:       vulkan (CUDA only when built with ENABLE_CUDA)
+//   - linux / win32:       vulkan (linux-x64 prebuilds also bundle cuda)
 //   - android:             vulkan + opencl
 function expectsGpu() {
   return (
@@ -226,6 +229,7 @@ test(
     }
 
     const model = await loadChatterboxTTS({
+      threads: TTS_TEST_THREADS,
       modelDir: download.targetDir,
       refWavPath,
       language: 'en',
@@ -285,6 +289,7 @@ test(
     }
 
     const model = await loadChatterboxTTS({
+      threads: TTS_TEST_THREADS,
       modelDir: download.targetDir,
       t3ModelPath: path.join(download.targetDir, 'chatterbox-t3-mtl.gguf'),
       s3genModelPath: path.join(download.targetDir, 'chatterbox-s3gen-mtl.gguf'),
@@ -336,6 +341,7 @@ test(
     const supertonicPath = download.path || path.join(modelsDir, 'supertonic.gguf')
 
     const model = await loadSupertonicTTS({
+      threads: TTS_TEST_THREADS,
       supertonicModelPath: supertonicPath,
       language: 'en',
       voice: 'F1',
@@ -383,6 +389,7 @@ test(
     }
 
     const model = await loadSupertonicTTS({
+      threads: TTS_TEST_THREADS,
       supertonicModelPath: download.path,
       language: 'en',
       voice: 'F1',
@@ -429,6 +436,7 @@ test(
     }
 
     const model = await loadSupertonicTTS({
+      threads: TTS_TEST_THREADS,
       supertonicModelPath: download.path,
       language: 'en',
       voice: 'F1',
@@ -486,6 +494,7 @@ test(
     }
 
     const model = await loadChatterboxTTS({
+      threads: TTS_TEST_THREADS,
       modelDir: download.targetDir,
       refWavPath,
       language: 'en',
@@ -530,6 +539,7 @@ test(
     const supertonicPath = download.path || path.join(modelsDir, 'supertonic.gguf')
 
     const model = await loadSupertonicTTS({
+      threads: TTS_TEST_THREADS,
       supertonicModelPath: supertonicPath,
       language: 'en',
       voice: 'F1',
@@ -581,6 +591,7 @@ for (const v of [
         return
       }
       const model = await loadParlerTTS({
+        threads: TTS_TEST_THREADS,
         parlerModelPath: download.path,
         seed: 42,
         useGPU: true
@@ -623,6 +634,7 @@ for (const v of [
         return
       }
       const model = await loadParlerTTS({
+        threads: TTS_TEST_THREADS,
         parlerModelPath: download.path,
         seed: 42,
         useGPU: false
@@ -676,6 +688,7 @@ async function probeAndroidGpuVendor(t) {
   })
   if (!download || !download.success) return null
   const model = await loadSupertonicTTS({
+    threads: TTS_TEST_THREADS,
     supertonicModelPath: download.path,
     language: 'en',
     voice: 'F1',
@@ -728,6 +741,7 @@ test(
       }
     }
     const model = await loadCosyvoiceTTS({
+      threads: TTS_TEST_THREADS,
       cosyvoiceModelDir: download.modelDir,
       useGPU: true
     })
@@ -786,6 +800,7 @@ test(
       return
     }
     const model = await loadCosyvoiceTTS({
+      threads: TTS_TEST_THREADS,
       cosyvoiceModelDir: download.modelDir,
       useGPU: false
     })

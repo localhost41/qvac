@@ -326,7 +326,7 @@ qvac verify bundle --addons-source qvac/worker.bundle.js \
 
 | Code                       | Level   | Meaning                                                                                                                                                                                                                                                                                                                                 |
 | -------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `missing-prebuild`         | error   | The addon's `<packageRoot>/prebuilds/<host>/*.bare` directory is missing or empty.                                                                                                                                                                                                                                                      |
+| `missing-prebuild`         | error   | No `.bare` for the host: the addon's `<packageRoot>/prebuilds/<host>/` is missing or empty, and no per-platform package `<addon>-<host>` (iOS hosts grouped under `<addon>-ios`) with `addon/prebuilds/<host>/*.bare` resolves from the addon's package root.                                                                           |
 | `abi-mismatch`             | error   | The addon's declared `engines.bare` range does not include the resolved runtime version.                                                                                                                                                                                                                                                |
 | `unknown-runtime-version`  | warning | At least one addon declares `engines.bare`, but no Bare runtime version could be auto-detected. Pass `--bare-runtime-version` to enable strict ABI verification.                                                                                                                                                                        |
 | `invalid-runtime-version`  | error   | The value passed via `--bare-runtime-version` or via the config `bareRuntimeVersion` field is not a valid semver. An invalid explicit version is rejected as an error (vs. auto-detection failure, which is only a warning) because the user opted into runtime verification. ABI resolution is skipped, but prebuild checks still run. |
@@ -399,6 +399,8 @@ Independently, `--docs` enables CORS for same-port `localhost`, `127.0.0.1`, and
 A non-loopback `--host` refuses to start without `--api-key` or `--api-key-file`. `--allow-unauthenticated` downgrades that refusal to a warning.
 
 `--api-key` places the token in the process's command line, which `/proc/<pid>/cmdline` exposes to every local account on Linux. `--api-key-file` reads it from an owner-only file instead; the CLI refuses a path that is not a regular file and warns when the file is readable beyond its owner.
+
+The QVAC surface serves **`POST /qvac/v1/translate`**: text translation through an NMT alias whose `config` carries the `engine` and the `from` / `to` languages. `text` takes one string or an array, and `stream: true` emits Server-Sent Events.
 
 See **[docs/serve/](./docs/serve/README.md)** for the server reference: shared configuration and model loading, the [QVAC surface](./docs/serve/default.md), and the [OpenAI-compatible surface](./docs/serve/openai.md) — supported `/v1/...` routes, multipart request shapes, and how to register models — including **`whispercpp-audio-translation`** for `POST /v1/audio/translations` (Whisper translate-to-English), the volatile **`POST /v1/responses`** Responses API with `previous_response_id` chaining, the diffusion-backed **`POST /v1/images/generations`** / **`POST /v1/images/edits`** routes (use `--public-base-url <origin>` to enable `response_format=url` responses backed by `GET /v1/files/{id}/content`), and **`POST /v1/audio/speech`** (Chatterbox / Supertonic TTS — `wav` + `pcm` natively, plus `mp3` / `opus` / `aac` / `flac` when `ffmpeg` is on the server's `PATH` — with a `serve.openai.audio.speech.voices` map from OpenAI voice → model alias, and the `GET /v1/audio/voices` / `GET /v1/audio/models` discovery endpoints).
 
@@ -474,7 +476,7 @@ For tests that touch `qvac serve --openai`, `@qvac/ai-sdk-provider`, or agent-to
 [`test/AGENT_STACK_E2E.md`](./test/AGENT_STACK_E2E.md). It defines which layer owns SDK e2e,
 CLI contract tests, CLI in-process HTTP e2e, CLI spawned-binary e2e, provider integration, and plugin integration.
 
-The CLI depends on the published `@qvac/sdk` (`^0.17.0`), which provides the
+The CLI depends on the published `@qvac/sdk` (`^0.20.0`), which provides the
 `./commands` subpath that `bundle`/`verify` re-export and the server runtime
 the `serve` commands use. A normal `npm install` pulls it from the registry —
 no local SDK build is required.
@@ -502,11 +504,11 @@ npm run dev:unlink
 ```
 
 This runs `git checkout HEAD -- package.json` and re-installs, so the
-committed `@qvac/sdk` dependency (`^0.17.0`) is restored regardless of what you
+committed `@qvac/sdk` dependency (`^0.20.0`) is restored regardless of what you
 swapped in locally. `package-lock.json` is gitignored and is regenerated by the
 trailing `npm install`.
 
-**How CI tests the CLI/SDK pair** (SDK Pod Checks):
+**How CI tests the CLI/SDK pair**:
 
 - PRs into `main` (and `feature-*` / `tmp-*`) build and test the CLI against the
   **in-repo SDK** — the source that will ship. CI runs the
@@ -518,6 +520,8 @@ trailing `npm install`.
   proves the CLI works against the exact SDK version it will ship against. If it
   fails, widen the committed `@qvac/sdk` range to a published version that
   carries the API the CLI now needs.
+- Push CI (`General CI/CD (cli)`) uses the same split: in-repo SDK on `main` /
+  `feature-*` / `tmp-*`, published SDK on `release-*`.
 
 The committed `@qvac/sdk` range is never changed for testing — the in-repo link
 is a CI-time/local-only override (`sdk-source:workspace` / `dev:link`), never

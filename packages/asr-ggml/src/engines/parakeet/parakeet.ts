@@ -1,11 +1,8 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- bare-path exposes a CommonJS export shape. */
-import path = require("bare-path");
-/* eslint-enable @typescript-eslint/no-require-imports */
-
 import {
   ERR_CODES_PARAKEET as ERR_CODES,
   QvacErrorAddonASRGgml,
 } from "../../lib/error";
+import { resolveBackendsDir } from "../../lib/backends";
 import {
   END_OF_INPUT,
   MAX_BUFFERED_BYTES,
@@ -37,9 +34,13 @@ export interface ParakeetConfigurationParams {
   captionEnabled?: boolean;
   timestampsEnabled?: boolean;
   seed?: number;
-  /** Multilingual CTC language id; required for Indic Conformer GGUFs. */
+  /** Indic CTC language id or Nemotron locale alias; empty selects auto. */
   language?: string;
   streaming?: boolean;
+  /**
+   * Model-specific when omitted: Nemotron 320 ms, Unified RNN-T 560 ms,
+   * existing models 2000 ms.
+   */
   streamingChunkMs?: number;
   streamingHistoryMs?: number;
   streamingEmitPartials?: boolean;
@@ -216,9 +217,7 @@ export class ParakeetInterface {
   ): ParakeetConfigurationParams {
     const out = { ...configurationParams };
     if (!out.backendsDir) {
-      // Generated file lives at engines/parakeet/parakeet.js; prebuilds/
-      // sits at the package root, two levels up.
-      out.backendsDir = path.join(__dirname, "..", "..", "prebuilds");
+      out.backendsDir = resolveBackendsDir();
     }
     return out;
   }

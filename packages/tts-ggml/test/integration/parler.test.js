@@ -13,6 +13,7 @@ const test = require('brittle')
 const { loadParlerTTS, runParlerTTS } = require('../utils/runParlerTTS')
 const { ensureParlerModel } = require('../utils/downloadModel')
 const { recordTtsStats } = require('../utils/perf-helper')
+const { TTS_TEST_THREADS } = require('../utils/testThreads')
 
 const platform = os.platform()
 const isMobile = platform === 'ios' || platform === 'android'
@@ -39,7 +40,11 @@ test(
 
     // Deliberately NO description/voice/emotion: the engine renders the
     // models' recommended fallback caption — everything works on defaults.
-    const model = await loadParlerTTS({ parlerModelPath: download.path, seed: 42 })
+    const model = await loadParlerTTS({
+      threads: TTS_TEST_THREADS,
+      parlerModelPath: download.path,
+      seed: 42
+    })
     try {
       const wavPath = isMobile ? undefined : path.join(baseDir, 'test', 'output', 'parler-en.wav')
       const text = 'The parler engine speaks with a voice controlled by a text description.'
@@ -100,7 +105,11 @@ test(
       return
     }
 
-    const model = await loadParlerTTS({ parlerModelPath: download.path, voice: 'Laura' })
+    const model = await loadParlerTTS({
+      threads: TTS_TEST_THREADS,
+      parlerModelPath: download.path,
+      voice: 'Laura'
+    })
     try {
       const response = await model.run({
         type: 'text',
@@ -143,6 +152,7 @@ test(
     t.exception(
       () =>
         new TTSGgml({
+          threads: TTS_TEST_THREADS,
           engine: TTSGgml.ENGINE_PARLER,
           files: { parlerModel: download.path },
           description: 'A calm female voice.',
@@ -157,6 +167,7 @@ test(
     t.exception(
       () =>
         new TTSGgml({
+          threads: TTS_TEST_THREADS,
           engine: TTSGgml.ENGINE_SUPERTONIC,
           files: { supertonicModel: download.path },
           emotion: 'happy'
@@ -167,6 +178,7 @@ test(
     t.exception(
       () =>
         new TTSGgml({
+          threads: TTS_TEST_THREADS,
           engine: TTSGgml.ENGINE_SUPERTONIC,
           files: { supertonicModel: download.path },
           pitch: 'high'
@@ -176,6 +188,7 @@ test(
     )
 
     const model = await loadParlerTTS({
+      threads: TTS_TEST_THREADS,
       parlerModelPath: download.path,
       voice: 'Laura',
       seed: 42
@@ -218,6 +231,7 @@ test(
 
     // Constructor-level free-text description + per-call template rejects.
     const descModel = await loadParlerTTS({
+      threads: TTS_TEST_THREADS,
       parlerModelPath: download.path,
       description: 'A calm female voice, very clear audio.',
       seed: 42
@@ -248,6 +262,7 @@ test(
     }
 
     const model = await loadParlerTTS({
+      threads: TTS_TEST_THREADS,
       parlerModelPath: download.path,
       voice: 'Laura',
       seed: 42
@@ -295,6 +310,7 @@ test(
     }
 
     const model = await loadParlerTTS({
+      threads: TTS_TEST_THREADS,
       parlerModelPath: download.path,
       voice: 'Laura',
       emotion: 'neutral',
@@ -340,6 +356,7 @@ test(
 
     const TTSGgml = require('@qvac/tts-ggml')
     const model = new TTSGgml({
+      threads: TTS_TEST_THREADS,
       engine: TTSGgml.ENGINE_PARLER,
       files: { parlerModel: download.path },
       seed: 42,
@@ -392,6 +409,7 @@ test(
 
     async function synth(extra) {
       const model = new TTSGgml({
+        threads: TTS_TEST_THREADS,
         engine: TTSGgml.ENGINE_PARLER,
         files: { parlerModel: download.path },
         seed: 42,
@@ -444,8 +462,8 @@ test(
     const streamed = flatten(chunks)
 
     // Batch reference (same seed/text, no streaming = whole-utterance decode).
-    // The engine proves the streamed float PCM is bit-identical to batch, so the
-    // int16 the addon emits must match sample-for-sample end to end.
+    // The engine keeps the streamed float PCM equal to batch up to accumulation
+    // order, so the int16 the addon emits must match end to end within an LSB.
     const batch = await synth({})
     const batchOut = flatten(batch)
 
@@ -455,9 +473,12 @@ test(
       const d = Math.abs(streamed[i] - batchOut[i])
       if (d > maxDiff) maxDiff = d
     }
-    // CPU decode is bit-identical (0); on Metal a last-ULP float diff can flip an
-    // int16 LSB, so allow a tiny tolerance there (the engine test pins the bound).
-    const tol = useGPU ? 32 : 0
+    // CPU decode matches batch up to an int16 LSB: since ggml-speech
+    // 2026-09-09#1 the x86-Linux and Apple-silicon GEMMs go through tinyBLAS,
+    // whose accumulation order differs between the streamed and batch graph
+    // shapes (observed max diff 1 on the linux-x64 CI lanes). On Metal a
+    // last-ULP float diff can flip more; the engine test pins that bound.
+    const tol = useGPU ? 32 : 2
     t.ok(maxDiff <= tol, `streamed int16 matches batch within ${tol} (max diff ${maxDiff})`)
   }
 )
@@ -478,6 +499,7 @@ test(
     }
 
     const model = await loadParlerTTS({
+      threads: TTS_TEST_THREADS,
       parlerModelPath: download.path,
       voice: 'Rohit',
       emotion: 'happy',
@@ -539,7 +561,12 @@ for (const { variant, quant } of PARLER_QUANT_MATRIX) {
       }
 
       const useGPU = isApple && !NO_GPU
-      const model = await loadParlerTTS({ parlerModelPath: download.path, seed: 42, useGPU })
+      const model = await loadParlerTTS({
+        threads: TTS_TEST_THREADS,
+        parlerModelPath: download.path,
+        seed: 42,
+        useGPU
+      })
       try {
         const text =
           variant === 'indic'

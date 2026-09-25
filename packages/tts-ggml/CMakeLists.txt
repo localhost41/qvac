@@ -40,7 +40,15 @@ configure_file(${VCPKG_INSTALLED_PATH}/tools/lint-cpp/hooks/pre-commit
                ${CMAKE_CURRENT_SOURCE_DIR}/.git/hooks/pre-commit COPYONLY)
 
 find_path(QVAC_LIB_INFERENCE_ADDON_CPP_INCLUDE_DIRS "inference-addon-cpp/ModelInterfaces.hpp")
-find_package(tts-cpp CONFIG REQUIRED)
+find_package(tts-cpp CONFIG REQUIRED COMPONENTS pocket)
+# Older configs may not implement component checks. Reject those explicitly.
+if(NOT tts-cpp_pocket_FOUND)
+  message(FATAL_ERROR
+    "tts-ggml requires a tts-cpp package containing Pocket TTS. "
+    "The selected registry source pin is too old. Install the updated "
+    "speech repository's engines/tts and set tts-cpp_DIR to its "
+    "share/tts-cpp directory; see README.md for local build instructions.")
+endif()
 find_package(mecab CONFIG REQUIRED)
 # Pull in ggml directly (in addition to the transitive
 # find_package(ggml) that tts-cppConfig.cmake already does) so the
@@ -109,29 +117,63 @@ endif()
 # Loose-file pickup for MODULE backends that aren't surfaced as
 # IMPORTED targets by find_package(ggml). On Android this is what
 # actually delivers Vulkan + OpenCL into the prebuilds folder, and on
-# hybrid Linux builds (arm64, x64 with ENABLE_CUDA) it delivers the
-# CPU-variant / Vulkan / CUDA modules. Glob runs at configure time -- the .so files come from
-# ggml-speech's `file(INSTALL ...)` step in its portfile, which has
-# already completed by the time vcpkg hands control back to us. Apple
-# / Windows static-only configs return an empty list and skip the
+# hybrid desktop builds (linux-arm64, linux-x64 / win32-x64 with
+# ENABLE_CUDA) it delivers the CPU-variant / Vulkan / CUDA modules.
+# Glob runs at configure time -- the module files come from ggml-speech's
+# portfile pickup into lib/ (.so on Linux/Android, .dll on Windows),
+# which has already completed by the time vcpkg hands control back to
+# us. Apple / static-only configs return an empty list and skip the
 # install rule below.
 set(BACKEND_DL_LOOSE_SOS "")
-if((ANDROID OR UNIX) AND NOT APPLE)
+if(((ANDROID OR UNIX) AND NOT APPLE) OR (WIN32 AND ENABLE_CUDA))
   if(NOT VCPKG_INSTALLED_PATH OR NOT EXISTS "${VCPKG_INSTALLED_PATH}/lib")
     message(WARNING "tts-ggml: VCPKG_INSTALLED_PATH "
       "('${VCPKG_INSTALLED_PATH}') has no lib/ dir; skipping loose "
-      "ggml backend .so pickup -- the runtime may fail to find "
+      "ggml backend module pickup -- the runtime may fail to find "
       "Vulkan / OpenCL / CUDA backends.")
   else()
     file(GLOB BACKEND_DL_LOOSE_SOS
-      "${VCPKG_INSTALLED_PATH}/lib/libqvac-speech-ggml-*.so")
+      "${VCPKG_INSTALLED_PATH}/lib/libqvac-speech-ggml-*.so"
+      "${VCPKG_INSTALLED_PATH}/lib/qvac-speech-ggml-*.dll")
     foreach(_lib IN LISTS BACKEND_DL_LOOSE_SOS)
       message(STATUS "tts-ggml: will stage ggml backend ${_lib}")
     endforeach()
   endif()
 endif()
 
+# Developer builds may consume the shared speech ggml package on macOS.
+# Package its dylibs alongside the addon, using cmake-bare's SONAME-aware
+# install rules; the module's @loader_path rpath already points here.
+if(APPLE)
+  foreach(_library ggml::ggml ggml::ggml-base ggml::ggml-cpu tts-cpp::tts-cpp)
+    if(TARGET ${_library})
+      get_target_property(_library_type ${_library} TYPE)
+      if(_library_type STREQUAL "SHARED_LIBRARY")
+        list(APPEND BACKEND_DL_LIBS INSTALL TARGET ${_library})
+      elseif(_library_type STREQUAL "UNKNOWN_LIBRARY")
+        # ggml-config.cmake uses UNKNOWN IMPORTED targets even for dylibs.
+        # Preserve the complete symlink chain so the versioned LC_ID_DYLIB
+        # names resolve without depending on the developer's install prefix.
+        get_target_property(_dylib ${_library} IMPORTED_LOCATION)
+        if(_dylib MATCHES "\\.dylib$")
+          list(APPEND BACKEND_DYLIB_FILES "${_dylib}")
+          while(IS_SYMLINK "${_dylib}")
+            get_filename_component(_dylib_dir "${_dylib}" DIRECTORY)
+            file(READ_SYMLINK "${_dylib}" _dylib_link)
+            get_filename_component(_dylib "${_dylib_link}" ABSOLUTE BASE_DIR "${_dylib_dir}")
+            list(APPEND BACKEND_DYLIB_FILES "${_dylib}")
+          endwhile()
+        endif()
+      endif()
+    endif()
+  endforeach()
+endif()
+
 add_bare_module(tts-ggml EXPORTS ${BACKEND_DL_LIBS})
+if(BACKEND_DYLIB_FILES)
+  list(REMOVE_DUPLICATES BACKEND_DYLIB_FILES)
+  install(FILES ${BACKEND_DYLIB_FILES} DESTINATION ${BACKENDS_SUBDIR_VALUE})
+endif()
 
 # Stage every loose MODULE backend (Vulkan / OpenCL on Android, CUDA on desktop, ...)
 # into the same per-host/per-module subdir cmake-bare's INSTALL TARGET
@@ -159,9 +201,11 @@ target_sources(
     ${PROJECT_SOURCE_DIR}/addon/src/js-interface/JSAdapter.cpp
     ${PROJECT_SOURCE_DIR}/addon/src/model-interface/audio8/Audio8Model.cpp
     ${PROJECT_SOURCE_DIR}/addon/src/model-interface/chatterbox/ChatterboxModel.cpp
+    ${PROJECT_SOURCE_DIR}/addon/src/model-interface/moss/MossModel.cpp
     ${PROJECT_SOURCE_DIR}/addon/src/model-interface/parler/ParlerModel.cpp
     ${PROJECT_SOURCE_DIR}/addon/src/model-interface/supertonic/SupertonicModel.cpp
     ${PROJECT_SOURCE_DIR}/addon/src/model-interface/cosyvoice/CosyvoiceModel.cpp
+    ${PROJECT_SOURCE_DIR}/addon/src/model-interface/pocket/PocketModel.cpp
 )
 
 target_include_directories(
@@ -328,9 +372,11 @@ if(BUILD_TESTING)
   # outside the bare module link.
   add_executable(
     tts_ggml_tests
+      addon/tests/backend_env.cpp
       addon/tests/test_audio8_config.cpp
       addon/tests/test_backend_utils.cpp
       addon/tests/test_chatterbox_config.cpp
+      addon/tests/test_moss_config.cpp
       addon/tests/test_parler_config.cpp
       addon/tests/test_supertonic_config.cpp
       addon/tests/test_cosyvoice_config.cpp
@@ -338,9 +384,14 @@ if(BUILD_TESTING)
       addon/tests/test_streaming_enhancer.cpp
       addon/tests/test_output_resampler.cpp
       addon/tests/test_pcm_conversion.cpp
+      addon/tests/test_log_forwarding.cpp
+      addon/tests/test_number_conversion.cpp
+      addon/tests/test_runtime_stats.cpp
+      addon/tests/test_voice_controls_query.cpp
       addon/tests/AddonCppTest.cpp
       addon/src/model-interface/audio8/Audio8Model.cpp
       addon/src/model-interface/chatterbox/ChatterboxModel.cpp
+      addon/src/model-interface/moss/MossModel.cpp
       addon/src/model-interface/parler/ParlerModel.cpp
       addon/src/model-interface/supertonic/SupertonicModel.cpp
       addon/src/model-interface/cosyvoice/CosyvoiceModel.cpp
@@ -358,6 +409,12 @@ if(BUILD_TESTING)
       GTest::gmock_main
       tts-cpp::tts-cpp
   )
+  # Standalone tests do not receive the JS addon's packaged backendsDir.
+  # Hybrid ggml builds keep even the CPU backend in runtime-loaded modules.
+  target_compile_definitions(tts_ggml_tests PRIVATE
+    QVAC_TTS_TEST_BACKENDS_DIR="${VCPKG_INSTALLED_PATH}/lib"
+  )
+
   if(ENABLE_COVERAGE)
     # LLVM source-based coverage (clang).  Same flag set parakeet uses.
     target_compile_options(tts_ggml_tests PRIVATE

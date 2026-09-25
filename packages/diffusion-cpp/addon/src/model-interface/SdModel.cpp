@@ -50,10 +50,14 @@ struct ProgressCtx {
   // The pinned engine's progress emitters are: the sampler (one sequence per
   // image batch item / video expert, total = its step count) and sd_tiling
   // (VAE encode/decode tile passes, total = tile count, only when vae_tiling
-  // is enabled). Text encoders do NOT tick, and with eager_load = true (set
-  // at ctx creation) the model loader ticks during load(), not inside
-  // generate_*(). Ticks are attributed to the denoise window by their
-  // reported total:
+  // is enabled). Text encoders do NOT tick. With eager_load = true (set at ctx
+  // creation) the model loader ticks during load(), not inside generate_*().
+  // eager_load is false on mobile and for any disk-backed params_backend, and
+  // in those cases loader ticks DO land inside generate_*() -- for a
+  // disk-backed module on every job, not just the first, because the engine
+  // releases those weights at each phase boundary and re-reads them from the
+  // model file on the next use. Ticks are attributed to the denoise window by
+  // their reported total:
   //   - exact mode (denoiseTotals non-empty): a tick is denoise iff its total
   //     is one of the known sampler step counts (image: steps; video: the
   //     explicit high/low expert totals).
@@ -368,14 +372,10 @@ void SdModel::load() {
   params.flash_attn = config_.flashAttn;
   params.diffusion_flash_attn = config_.diffusionFlashAttn;
   // The engine defaults to lazy weight loading (eager_load = false), which
-  // moves per-module weight loads INSIDE generate_*(): the model loader then
-  // emits progress ticks (total = tensor count) that reach JS consumers
-  // indistinguishably from sampler ticks, and the first job's conditionerMs
-  // absorbs weight-load time. On desktop, load eagerly at new_sd_ctx()
-  // instead — the cost lands in modelLoadMs where this addon already
-  // accounts for it, and generate_*() emits only sampler and VAE-tiling
-  // sequences. (The engine auto-downgrades eager_load when graph-cut layer
-  // splitting is active; this addon does not enable that mode.)
+  // moves per-module weight loads inside generate_*(). On desktop, load
+  // eagerly so the cost lands in modelLoadMs and generation progress excludes
+  // loader ticks. Disk-backed parameters are the exception: eager loading
+  // defeats their on-demand residency and can exhaust the runtime backend.
   //
   // Mobile stays lazy: eager loading front-loads every module's full weight
   // prep into load(), which pushed the Device Farm API-behavior and
@@ -387,7 +387,8 @@ void SdModel::load() {
 #if defined(__ANDROID__) || (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE)
   params.eager_load = false;
 #else
-  params.eager_load = true;
+  params.eager_load = !qvac_lib_inference_addon_sd::paramsBackendSpecUsesDisk(
+      config_.paramsBackendSpec);
 #endif
 
   // Load DL GPU backend modules before probing devices / creating the SD
@@ -401,31 +402,87 @@ void SdModel::load() {
   params.vae_auto_cpu_fallback_memory_ratio =
       config_.vaeAutoCpuFallbackMemoryRatio;
 
-  // Parameter residency goes through the engine's params_backend assignment
-  // spec (comma-separated `module=backend` pairs, bare value = default for
-  // every module): offload_to_cpu pins all params to CPU RAM; clip_on_cpu /
-  // vae_on_cpu pin just those modules. vae_decode_only and
-  // free_params_immediately have no engine equivalent any more (the encoder
-  // stays loaded and params stay resident for the ctx lifetime); they remain
-  // addon-level config for validation/compatibility.
-  std::string paramsBackendSpec;
-  if (config_.offloadToCpu) {
-    paramsBackendSpec = "cpu";
-  } else {
-    if (config_.keepClipOnCpu)
-      paramsBackendSpec = "clip=cpu";
-    if (config_.keepVaeOnCpu)
-      paramsBackendSpec += paramsBackendSpec.empty() ? "vae=cpu" : ",vae=cpu";
+  params.max_vram =
+      config_.maxVramSpec.empty() ? nullptr : config_.maxVramSpec.c_str();
+  // Forward stream_layers exactly as configured. The engine consumes it twice:
+  // once for layer residency, which does require an active graph-cut budget,
+  // and once as a memory-pressure hint for the LoRA apply decision, which does
+  // not. Rewriting it to false here suppressed the second use as well, which on
+  // an all-CPU diffusion path flipped apply_lora_immediately from false to true
+  // and reintroduced the full-model LoRA merge buffers the engine avoids on
+  // constrained setups. The engine already disables streaming on its own when
+  // its prerequisites are unmet, so the addon reports and does not decide.
+  params.stream_layers = config_.streamLayers;
+  if (config_.streamLayers &&
+      !qvac_lib_inference_addon_sd::maxVramSpecHasNonZeroBudget(
+          config_.maxVramSpec)) {
+    // ERROR rather than WARNING purely for visibility: g_verbosityLevel starts
+    // at ERROR and callers rarely set "verbosity", so a WARNING here would be
+    // invisible on exactly the default configuration that triggers it. Do not
+    // "correct" this to WARNING without also raising the default verbosity.
+    QLOG_IF(
+        qvac_lib_inference_addon_cpp::logger::Priority::ERROR,
+        "stream_layers needs a non-zero max_vram to enable graph cutting; "
+        "layer streaming will not run for this configuration");
   }
-  if (!paramsBackendSpec.empty()) {
-    params.params_backend = paramsBackendSpec.c_str();
+  if (!config_.maxVramSpec.empty()) {
+    QLOG_IF(
+        qvac_lib_inference_addon_cpp::logger::Priority::INFO,
+        "Effective stable-diffusion max_vram '" + config_.maxVramSpec + "'");
   }
+
+  std::string paramsBackend =
+      qvac_lib_inference_addon_sd::effectiveParamsBackendSpec(
+          config_.paramsBackendSpec, config_.offloadToCpu);
+  if (config_.offloadToCpu &&
+      qvac_lib_inference_addon_sd::paramsBackendSpecOverridesCpuDefault(
+          config_.paramsBackendSpec)) {
+    // The engine applies bare entries and *, all, or default assignments as the
+    // spec-wide default. Only report when the final default is not CPU, so an
+    // equivalent CPU default does not produce a false error.
+    QLOG_IF(
+        qvac_lib_inference_addon_cpp::logger::Priority::ERROR,
+        "params_backend '" + config_.paramsBackendSpec +
+            "' replaces the offload_to_cpu default; use a module-specific "
+            "assignment to keep CPU offload for the remaining modules");
+  }
+  if (!paramsBackend.empty()) {
+    QLOG_IF(
+        qvac_lib_inference_addon_cpp::logger::Priority::INFO,
+        "Effective stable-diffusion params backend '" + paramsBackend + "'");
+  }
+  params.params_backend =
+      paramsBackend.empty() ? nullptr : paramsBackend.c_str();
+
+  // August always loads the VAE capabilities needed by the selected model and
+  // keeps model-manager residency across jobs. These legacy controls therefore
+  // have no direct C API equivalent.
+  if (config_.vaeDecodeOnly)
+    QLOG_IF(
+        qvac_lib_inference_addon_cpp::logger::Priority::INFO,
+        "vae_decode_only is ignored by the 2026-08-11 engine");
+  if (config_.freeParamsImmediately)
+    QLOG_IF(
+        qvac_lib_inference_addon_cpp::logger::Priority::INFO,
+        "free_params_immediately is ignored by the 2026-08-11 engine");
 
   params.preferred_gpu_backend =
       sd_backend_selection::preferredGpuBackendForConfigDevice(config_.device);
 
   std::string mainGpuBackend;
-  if (!config_.mainGpu.empty() &&
+  if (!config_.backendSpec.empty()) {
+    params.backend = config_.backendSpec.c_str();
+    if (!config_.mainGpu.empty()) {
+      QLOG_IF(
+          qvac_lib_inference_addon_cpp::logger::Priority::INFO,
+          "main-gpu ignored because an explicit backend assignment is set");
+    }
+    QLOG_IF(
+        qvac_lib_inference_addon_cpp::logger::Priority::INFO,
+        "Explicit stable-diffusion backend assignment '" + config_.backendSpec +
+            "'");
+  } else if (
+      !config_.mainGpu.empty() &&
       sd_backend_selection::parseConfigDeviceString(config_.device) ==
           sd_backend_selection::ConfigDevice::Gpu) {
     auto mainGpuSpec = sd_backend_selection::parseMainGpu(config_.mainGpu);
@@ -486,11 +543,25 @@ void SdModel::load() {
     const std::string path = config_.diffusionModelPath.empty()
                                  ? config_.modelPath
                                  : config_.diffusionModelPath;
+    // Derived from what was actually handed to the engine, not from what the
+    // caller set. offload_to_cpu synthesizes a params_backend and an
+    // unsatisfiable main-gpu resolves a backend, and neither is visible in the
+    // corresponding config_ spec string -- so reading the config here sent
+    // those two cases to the model-path message even though a backend or
+    // residency spec is exactly what the engine rejected.
+    const bool hasExplicitMemoryOrBackendConfig =
+        params.backend != nullptr || params.params_backend != nullptr ||
+        params.max_vram != nullptr;
+    const std::string guidance =
+        hasExplicitMemoryOrBackendConfig
+            ? "Check backend, params_backend, max_vram, model path, and model "
+              "format: "
+            : "Check model path and format: ";
     throw StatusError(
         general_error::InternalError,
-        "SdModel::load() failed -- could not create stable-diffusion context. "
-        "Check model path and format: " +
-            path);
+        "SdModel::load() failed -- could not create stable-diffusion "
+        "context. " +
+            guidance + path);
   }
 
   sdCtx_.reset(raw);
@@ -656,7 +727,7 @@ SdModel::processImage(const GenerationJob& job, const picojson::value& parsed) {
 
   // -- img2img --------------------------------------------------------------
   //
-  // Three code paths depending on model architecture and input shape:
+  // Two code paths depending on model architecture and input shape:
   //
   //   FLUX2 (prediction='flux2_flow', engine-side auto-detected) with N
   //   reference images (N>=1):
@@ -667,10 +738,6 @@ SdModel::processImage(const GenerationJob& job, const picojson::value& parsed) {
   //     (skin tone, structure, etc.) from every reference while generating
   //     a fully new image. N>=2 is "fusion" mode -- addressable in the prompt
   //     as @image1, @image2, ...
-  //
-  //   FLUX (FLUX_FLOW_PRED) with a single reference image:
-  //     Same ref_images path as FLUX2, just a single ref. Multi-image is
-  //     rejected here because only FLUX2 defines the @imageN placeholders.
   //
   //   All other models (SD1.x, SD2.x, SDXL, SD3):
   //     Uses init_image -- traditional SDEdit. The input image is noised to
@@ -703,8 +770,6 @@ SdModel::processImage(const GenerationJob& job, const picojson::value& parsed) {
       new std::vector<sd_image_t>(), refImgsDeleter);
 
   if (gen.mode == "img2img") {
-    const bool isFluxFamily =
-        config_.flux2Requested || config_.prediction == FLUX_FLOW_PRED;
     const bool isFlux2 = config_.flux2Requested;
     const size_t nMulti = job.initImagesBytes.size();
 
@@ -814,7 +879,7 @@ SdModel::processImage(const GenerationJob& job, const picojson::value& parsed) {
       const int imgW = static_cast<int>(initImg.width);
       const int imgH = static_cast<int>(initImg.height);
 
-      if (isFluxFamily) {
+      if (isFlux2) {
         // FLUX in-context conditioning: ref_images handles its own resizing
         // via ref_image_args' resize_before_vae, so only override genParams
         // dimensions when they are still at the 512x512 default.
@@ -952,7 +1017,10 @@ SdModel::processImage(const GenerationJob& job, const picojson::value& parsed) {
     }
     throw StatusError(general_error::InternalError, "generate_image() failed");
   }
-
+  if (genImages == nullptr || genImageCount <= 0) {
+    throw StatusError(
+        general_error::InternalError, "generate_image() returned no images");
+  }
   int outputCount = 0;
   // RuntimeStats describe emitted PNGs. Keep generation dimensions as the
   // fallback so a failed encode/callback does not report an upscaled size.
@@ -1081,6 +1149,10 @@ SdModel::processVideo(const GenerationJob& job, const picojson::value& parsed) {
   qvac_lib_inference_addon_sd::applySdVidGenHandlers(
       vid, parsed.get<picojson::object>());
   const auto& paramsObject = parsed.get<picojson::object>();
+  const bool isMiniMaxH3 = videoModelCapabilities_.isMiniMaxH3;
+  const bool hasReferenceOptions =
+      paramsObject.find("reference_attention_strength") != paramsObject.end() ||
+      paramsObject.find("reference_downscale_factor") != paramsObject.end();
 
   if (vid.mode != "txt2vid" && vid.mode != "img2vid")
     throw StatusError(
@@ -1088,9 +1160,85 @@ SdModel::processVideo(const GenerationJob& job, const picojson::value& parsed) {
         "processVideo: unsupported mode '" + vid.mode +
             "' (expected txt2vid or img2vid)");
 
-  const bool hasReferenceOptions =
-      paramsObject.find("reference_attention_strength") != paramsObject.end() ||
-      paramsObject.find("reference_downscale_factor") != paramsObject.end();
+  if (isMiniMaxH3) {
+    // H3 currently supports text-to-audio-video only. Keep this native check
+    // authoritative so renamed GGUFs and bindings that bypass video.ts cannot
+    // enter unsupported image/reference/control paths.
+    if (vid.mode != "txt2vid" || !job.initImageBytes.empty() ||
+        !job.initImagesBytes.empty())
+      throw StatusError(
+          general_error::InvalidArgument,
+          "MiniMax-H3 supports text-to-audio-video only; image conditioning "
+          "(img2vid/init_image) is not supported");
+    if (!config_.highNoiseDiffusionModelPath.empty())
+      throw StatusError(
+          general_error::InvalidArgument,
+          "MiniMax-H3 does not support a Wan 2.2 high-noise diffusion model");
+    if (!job.controlFramesBytes.empty() ||
+        paramsObject.find("vace_strength") != paramsObject.end())
+      throw StatusError(
+          general_error::InvalidArgument,
+          "MiniMax-H3 does not support control_frames or vace_strength");
+    if (paramsObject.find("strength") != paramsObject.end() ||
+        paramsObject.find("img_cfg_scale") != paramsObject.end())
+      throw StatusError(
+          general_error::InvalidArgument,
+          "MiniMax-H3 does not support image-conditioning strength or "
+          "img_cfg_scale");
+    if (!job.referenceImagesBytes.empty() || hasReferenceOptions ||
+        !vid.loraPath.empty() ||
+        paramsObject.find("lora_strength") != paramsObject.end() ||
+        paramsObject.find("stg_scale") != paramsObject.end() ||
+        paramsObject.find("stg_block") != paramsObject.end())
+      throw StatusError(
+          general_error::InvalidArgument,
+          "MiniMax-H3 does not support reference_images, reference options, "
+          "or video LoRAs");
+    static constexpr std::array<const char*, 6> kWan22MoeParams = {
+        "high_noise_steps",
+        "high_noise_sampler",
+        "high_noise_scheduler",
+        "high_noise_cfg_scale",
+        "high_noise_flow_shift",
+        "moe_boundary"};
+    for (const char* key : kWan22MoeParams) {
+      if (paramsObject.find(key) != paramsObject.end())
+        throw StatusError(
+            general_error::InvalidArgument,
+            std::string("MiniMax-H3 does not support ") + key +
+                " (Wan 2.2 high-noise expert control)");
+    }
+
+    if (!vid.widthExplicit)
+      vid.width = 960;
+    if (!vid.heightExplicit)
+      vid.height = 544;
+    if (!vid.videoFramesExplicit)
+      vid.videoFrames = 124;
+    if (!vid.fpsExplicit)
+      vid.fps = 24;
+    if (!vid.sampleStepsExplicit)
+      vid.sampleSteps = 8;
+    if (!vid.schedulerExplicit)
+      vid.scheduler = DISCRETE_SCHEDULER;
+    if (!vid.cfgScaleExplicit)
+      vid.cfgScale = 1.0f;
+    if (vid.cfgScale != 1.0f)
+      throw StatusError(
+          general_error::InvalidArgument,
+          "MiniMax-H3 requires cfg_scale to be exactly 1.0; got: " +
+              std::to_string(vid.cfgScale));
+    if (vid.scheduler != DISCRETE_SCHEDULER)
+      throw StatusError(
+          general_error::InvalidArgument,
+          "MiniMax-H3 requires scheduler='discrete'");
+    if (vid.fps != 24)
+      throw StatusError(
+          general_error::InvalidArgument,
+          "MiniMax-H3 output is always 24 FPS; got: " +
+              std::to_string(vid.fps));
+  }
+
   const bool hasReferenceImages = !job.referenceImagesBytes.empty();
   if (hasReferenceImages && vid.loraPath.empty())
     throw StatusError(
@@ -1166,12 +1314,22 @@ SdModel::processVideo(const GenerationJob& job, const picojson::value& parsed) {
         "txt2vid does not accept init_image; use img2vid instead");
 
   // -- Model-aware frame/dimension validation -------------------------------
-  // The generic handler enforces Wan's 4*k+1 frame rule and 16-pixel spatial
-  // grid. Spatial alignment is derived from the model's GGUF tensor
+  // The generic handler only validates scalar types and positivity. Frame
+  // packing and spatial alignment are derived from the model's GGUF tensor
   // descriptors at load time, rather than the caller-controlled model path.
   // This keeps renamed TI2V checkpoints and direct native callers on the
   // correct 32-pixel grid.
-  if (isLtxModel_) {
+  if (isMiniMaxH3) {
+    if (vid.videoFrames < videoModelCapabilities_.minimumVideoFrames ||
+        (vid.videoFrames - videoModelCapabilities_.frameCountOffset) %
+                videoModelCapabilities_.frameCountStride !=
+            0)
+      throw StatusError(
+          general_error::InvalidArgument,
+          "MiniMax-H3 video_frames must be of the form (17*k + 5) with k >= "
+          "0. Got: " +
+              std::to_string(vid.videoFrames));
+  } else if (isLtxModel_) {
     if (vid.videoFrames < 9 || (vid.videoFrames - 1) % 8 != 0 ||
         vid.videoFrames > 257)
       throw StatusError(
@@ -1179,6 +1337,15 @@ SdModel::processVideo(const GenerationJob& job, const picojson::value& parsed) {
           "LTX-2 video_frames must be of the form (8*k + 1) in [9, 257] "
           "(9, 17, 25, 33, ..., 257). Got: " +
               std::to_string(vid.videoFrames));
+  } else if (
+      vid.videoFrames < videoModelCapabilities_.minimumVideoFrames ||
+      (vid.videoFrames - videoModelCapabilities_.frameCountOffset) %
+              videoModelCapabilities_.frameCountStride !=
+          0) {
+    throw StatusError(
+        general_error::InvalidArgument,
+        "video_frames must be an integer >= 5 of the form (4*k + 1). Got: " +
+            std::to_string(vid.videoFrames));
   }
   const int spatialAlignment = videoModelCapabilities_.spatialAlignment;
   if (vid.width % spatialAlignment != 0 || vid.height % spatialAlignment != 0)
@@ -1369,6 +1536,13 @@ SdModel::processVideo(const GenerationJob& job, const picojson::value& parsed) {
   if (vid.cacheThreshold > 0.0f)
     vidParams.cache.reuse_threshold = vid.cacheThreshold;
 
+  const int effectiveVideoFps =
+      sd_get_effective_video_fps(sdCtx_.get(), &vidParams);
+  if (effectiveVideoFps <= 0)
+    throw StatusError(
+        general_error::InternalError,
+        "processVideo: sd_get_effective_video_fps() returned an invalid rate");
+
   // -- Generate -------------------------------------------------------------
   // Wan 2.1 / TI2V-5B invoke one sampler (total == vid.sampleSteps). Wan 2.2
   // A14B invokes the high-noise expert first and the low-noise expert
@@ -1397,9 +1571,8 @@ SdModel::processVideo(const GenerationJob& job, const picojson::value& parsed) {
   }
   const auto t0 = std::chrono::steady_clock::now();
 
-  // Upstream's master API returns success as a bool and hands back frames /
-  // audio via out-params. This addon delivers video-only (MJPG AVI), so we
-  // release any audio track the model produced to avoid leaking it.
+  // Upstream's API returns success as a bool and hands back frames / audio via
+  // out-params. Preserve a generated audio track in the emitted AVI.
   int numFramesOut = 0;
   sd_image_t* rawFrames = nullptr;
   sd_audio_t* rawAudio = nullptr;
@@ -1448,9 +1621,13 @@ SdModel::processVideo(const GenerationJob& job, const picojson::value& parsed) {
   }
 
   // -- Encode AVI and deliver ----------------------------------------------
-  // audio.get() is null for Wan / silent LTX runs, yielding a video-only AVI.
+  // audio.get() is null for Wan / silent runs, yielding a video-only AVI.
   auto avi = qvac_lib_inference_addon_sd::encodeFramesToAvi(
-      frames.data(), frames.count(), vid.fps, /*jpegQuality=*/90, audio.get());
+      frames.data(),
+      frames.count(),
+      effectiveVideoFps,
+      /*jpegQuality=*/90,
+      audio.get());
 
   if (!avi.empty() && job.outputCallback) {
     job.outputCallback(avi);
@@ -1492,7 +1669,7 @@ SdModel::processVideo(const GenerationJob& job, const picojson::value& parsed) {
   lastStats_.emplace_back("height", static_cast<int64_t>(vid.height));
   lastStats_.emplace_back("seed", vid.seed);
   lastStats_.emplace_back("videoFrames", static_cast<int64_t>(frames.count()));
-  lastStats_.emplace_back("fps", static_cast<int64_t>(vid.fps));
+  lastStats_.emplace_back("fps", static_cast<int64_t>(effectiveVideoFps));
   // LTX-2 audio: 0/1 flag + sample rate (0 when no audio track was produced).
   lastStats_.emplace_back("hasAudio", audio ? 1 : 0);
   lastStats_.emplace_back(

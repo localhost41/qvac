@@ -2,8 +2,8 @@
 
 // ABot-World integration tests.
 //
-// Lanes below run through the addon built against the published
-// stable-diffusion-cpp registry port (2026-07-03#7, engine PRs #22 + #27):
+// Lanes below run through the addon built against its pinned
+// stable-diffusion-cpp registry port:
 //
 //   1. Guard lane — the ABot model set loads natively and batch video
 //      generation is rejected: ABot is a causal/interactive model, not a
@@ -16,6 +16,7 @@
 //      mixed key tape with busy-contract and motion asserts.
 //   4. Variations lane — parameter coverage: small-image upscale path,
 //      448x256 output, JPEG frame encoding.
+//   5. Streaming lane — resident/streamed/disk parity across KV history updates.
 //
 // Model provisioning (self-contained, public):
 //   - The ABot model set is published in the QVAC P2P model registry
@@ -49,7 +50,13 @@ const test = require('brittle')
 const VideoStableDiffusion = require('@qvac/diffusion-cpp/video')
 const WorldStableDiffusion = require('@qvac/diffusion-cpp/world')
 const { readImageDimensions } = require('@qvac/diffusion-cpp/addon.js')
-const { ensureModelPath, setupJsLogger } = require('./utils.js')
+const { ensureModelPath, setupJsLogger, releaseJsLogger } = require('./utils.js')
+const {
+  waitForLogEvidence,
+  pngLuminanceStddev,
+  pngMeanAbsoluteError,
+  readScenePackPromptRows
+} = require('./abot-guards.js')
 
 // The registry client is a devDependency used only by the desktop provisioning
 // path (the lanes skip on mobile). The indirect specifier keeps the literal out
@@ -144,6 +151,7 @@ test(
   { skip, timeout: 2_400_000 },
   async (t) => {
     setupJsLogger()
+    t.teardown(releaseJsLogger)
 
     const dir = overrideDir || path.resolve(__dirname, '../model/abot')
     if (!overrideDir) {
@@ -162,7 +170,7 @@ test(
       config: {
         device: 'gpu',
         offload_to_cpu: true,
-        vae_on_cpu: true
+        params_backend: 'vae=cpu'
       },
       logger: console
     })
@@ -196,6 +204,7 @@ test(
   { skip, timeout: 2_400_000 },
   async (t) => {
     setupJsLogger()
+    t.teardown(releaseJsLogger)
 
     const dir = overrideDir || path.resolve(__dirname, '../model/abot')
     if (!overrideDir) {
@@ -262,6 +271,15 @@ test(
     t.ok(
       a.length !== b.length || !a.every((v, i) => v === b[i]),
       'walking forward produces different frames than idling'
+    )
+
+    // Numerical quality gate (see pngLuminanceStddev): garbage frames pass
+    // every structural assert above; require real image content.
+    const walkSharpness = pngLuminanceStddev(b)
+    t.ok(
+      walkSharpness > 20,
+      `walk frames keep structural detail (luminance stddev ` +
+        `${walkSharpness.toFixed(1)} > 20; blur/garbage collapse lands at 8-12)`
     )
 
     await world.unload().catch(() => {})
@@ -335,11 +353,181 @@ function framesAre(blocks, width, height, magic) {
   )
 }
 
+let streamingScene
+const residentWalks = new Map()
+
+async function provisionStreamingScene(t) {
+  const provisioned = await provisionWorldGeneration(t)
+  if (!provisioned) {
+    if (proc.env.CI === 'true') {
+      throw new Error('streaming validation requires the complete ABot model set in CI')
+    }
+    return null
+  }
+  const { dir, taehvPath, vaePath, t5Xxl } = provisioned
+  const scenePath = path.join(dir, 'scene-streaming-e2e.safetensors')
+  const files = { model: path.join(dir, DIT_NAME), taehv: taehvPath, scene: scenePath }
+  const scene = new WorldStableDiffusion({ files, config: { backend: 'gpu' }, logger: console })
+  try {
+    const creation = await scene.createScene({
+      prompt:
+        '| unknown | A realistic indoor scene with a person, natural lighting, detailed textures.',
+      image: fs.readFileSync(path.resolve(__dirname, '../../assets/claude-shannon.jpg')),
+      t5: t5Xxl,
+      vae: vaePath,
+      output: scenePath,
+      width: 448,
+      height: 256
+    })
+    await creation.onUpdate(() => {}).await()
+  } finally {
+    await scene.unload()
+  }
+  return files
+}
+
+for (const lane of [
+  {
+    name: 'CPU streaming, KV off',
+    kvCache: false,
+    paramsBackend: 'diffusion=cpu',
+    streamLayers: true
+  },
+  {
+    name: 'CPU streaming, KV on',
+    kvCache: true,
+    paramsBackend: 'diffusion=cpu',
+    streamLayers: true
+  },
+  { name: 'disk residency, KV on', kvCache: true, paramsBackend: 'diffusion=disk' }
+]) {
+  test(
+    `ABot-World: ${lane.name} matches resident frames across history updates`,
+    { skip, timeout: 2_400_000 },
+    async (t) => {
+      streamingScene ??= provisionStreamingScene(t)
+      const files = await streamingScene
+      if (!files) return
+      const addonLogging = require('@qvac/diffusion-cpp/addonLogging')
+      let evidence = []
+      const reportedEvidence = new Set()
+      addonLogging.setLogger((priority, message) => {
+        const line = String(message)
+        if (
+          /ABot-World DiT:|budget merge took|streaming budget =|residency=STREAMED|releasing params backend buffer/.test(
+            line
+          )
+        ) {
+          evidence.push(line)
+          // Keep diagnostics visible even if a native step never completes.
+          if (!reportedEvidence.has(line)) {
+            reportedEvidence.add(line)
+            console.log('[ABot streaming]', line.trim())
+          }
+        }
+      })
+      async function run(config) {
+        evidence = []
+        reportedEvidence.clear()
+        const started = Date.now()
+        console.log('[ABot streaming] starting walk', JSON.stringify(config))
+        const world = new WorldStableDiffusion({
+          files,
+          config: { backend: 'gpu', seed: 42, verbosity: 3, ...config },
+          logger: console
+        })
+        try {
+          await world.load()
+          // Four blocks exercise the KV ring's replacement, not only its initial capture.
+          const blocks = await walkTape(world, [{}, { W: true }, { W: true, L: true }, { S: true }])
+          t.alike(
+            blocks.map((frames) => frames.length),
+            [9, 12, 12, 12],
+            'all blocks complete'
+          )
+          t.ok(framesAre(blocks, 448, 256), 'all frames have the expected dimensions')
+          for (const frames of blocks) {
+            t.ok(pngLuminanceStddev(frames[frames.length - 1]) > 20, 'walk retains image detail')
+          }
+          const markers = config.streamLayers
+            ? ['streaming budget =', 'residency=STREAMED']
+            : config.paramsBackend === 'diffusion=disk'
+              ? ['params=disk', 'releasing params backend buffer']
+              : []
+          await waitForLogEvidence(evidence, markers)
+          if (config.streamLayers) {
+            t.ok(
+              evidence.some((line) => line.includes('streaming budget =')),
+              'shared streaming executor activated'
+            )
+            t.ok(
+              evidence.some((line) => line.includes('residency=STREAMED')),
+              'at least one DiT segment was streamed'
+            )
+          }
+          if (config.paramsBackend === 'diffusion=disk') {
+            t.ok(
+              evidence.some((line) => line.includes('params=disk')),
+              'disk placement reached the engine'
+            )
+            t.ok(
+              evidence.some((line) => line.includes('releasing params backend buffer')),
+              'disk weights are released during the walk'
+            )
+          }
+          console.log(
+            '[ABot streaming evidence]',
+            JSON.stringify(config),
+            [...new Set(evidence)].slice(0, 12)
+          )
+          return blocks
+        } finally {
+          await world.unload()
+          console.log(
+            '[ABot streaming] walk duration ms:',
+            Date.now() - started,
+            JSON.stringify(config)
+          )
+        }
+      }
+      function compare(expected, actual) {
+        for (let block = 0; block < expected.length; block++) {
+          for (let frame = 0; frame < expected[block].length; frame++) {
+            const error = pngMeanAbsoluteError(expected[block][frame], actual[block][frame])
+            t.ok(
+              error <= 1,
+              `block ${block}, frame ${frame}: mean pixel error ${error.toFixed(4)} <= 1/255 against resident execution`
+            )
+          }
+        }
+      }
+      try {
+        if (!residentWalks.has(lane.kvCache)) {
+          residentWalks.set(lane.kvCache, run({ kvCache: lane.kvCache }))
+        }
+        const baseline = await residentWalks.get(lane.kvCache)
+        compare(
+          baseline,
+          await run({
+            kvCache: lane.kvCache,
+            paramsBackend: lane.paramsBackend,
+            streamLayers: lane.streamLayers,
+            maxVram: 4
+          })
+        )
+      } finally {
+        addonLogging.releaseLogger()
+      }
+    }
+  )
+}
+
 test(
   'ABot-World: full world generation - native scene creation + KV-cache walk',
   { skip, timeout: 2_400_000 },
   async (t) => {
     setupJsLogger()
+    t.teardown(releaseJsLogger)
 
     const provisioned = await provisionWorldGeneration(t)
     if (!provisioned) return
@@ -383,6 +571,54 @@ test(
     t.ok(fs.existsSync(scenePath), 'scene pack written by native scene creation')
     t.ok(/"scene"/.test(sceneMsg), 'scene-creation completion JSON received')
 
+    // Conditioning invariants, straight off the pack - no DiT, no GPU, no
+    // frames. `live` is a COUNT of non-zero rows, so the bound carries a real
+    // margin: a healthy prompt sits far below rows/2 (26/512 measured), the
+    // 2026-08-11 regression left all 512 live, and a *partial* zeroing
+    // regression (tail zeroed, middle live) still lands near `rows` and trips
+    // the bound instead of hiding behind a mere "< rows". The contiguity check
+    // catches interior holes, which a count alone would not.
+    const census = readScenePackPromptRows(fs.readFileSync(scenePath))
+    t.ok(census.live > 0, `prompt encoded into the pack (${census.live} live rows)`)
+    t.ok(
+      census.live < census.rows / 2,
+      `prompt padding is zeroed (${census.live}/${census.rows} rows live; ` +
+        'a healthy prompt is far below half - pad embeddings drive it toward all)'
+    )
+    t.ok(
+      census.live === census.lastNonZero + 1,
+      `live rows form one leading block with no interior holes ` +
+        `(count ${census.live}, last live row ${census.lastNonZero})`
+    )
+
+    // ...and the embeddings must actually depend on the prompt. One extra
+    // umT5 encode (seconds, no DiT) guards the "prompt is ignored" class.
+    const otherScenePath = path.join(dir, 'scene-native-e2e-prompt-b.safetensors')
+    if (fs.existsSync(otherScenePath)) fs.unlinkSync(otherScenePath)
+    const otherCreation = await world.createScene({
+      prompt: '| unknown | A snowy mountain village at night under heavy snowfall.',
+      image,
+      t5: t5Xxl,
+      vae: vaePath,
+      output: otherScenePath,
+      width: 832,
+      height: 480
+    })
+    await otherCreation.onUpdate(() => {}).await()
+    const otherCensus = readScenePackPromptRows(fs.readFileSync(otherScenePath))
+    // Compare only the overlapping (equal-length) region. The two prompts have
+    // different token counts, so their live prefixes differ in length, and
+    // Buffer.equals() returns false for different-sized buffers regardless of
+    // content - a raw prefix compare would pass on the length difference alone.
+    // umT5 is contextual, so two different prompts differ even on shared leading
+    // rows, so a difference over the shared region proves content-sensitivity.
+    const shared = Math.min(census.prefix.length, otherCensus.prefix.length)
+    t.ok(shared > 0, 'both prompts encoded live rows into their packs')
+    t.ok(
+      !census.prefix.subarray(0, shared).equals(otherCensus.prefix.subarray(0, shared)),
+      'a different prompt changes the embeddings over the shared rows (prompt is not ignored)'
+    )
+
     // 2. Walk the newly created world with the KV cache on, covering the
     //    demo's input space: idle, move, move+camera chord, and the array
     //    form (bit 0..7 = W,A,S,D,I,J,K,L; see the unit matrix for the full
@@ -418,6 +654,18 @@ test(
     t.ok(
       idleLast.length !== chordLast.length || !idleLast.every((v, i) => v === chordLast[i]),
       'chord block produces different frames than idling'
+    )
+
+    // Numerical quality gate over the NATIVELY created scene: a conditioning
+    // or scene-pack regression collapses generated frames into low-contrast
+    // mush (stddev 8-12) that still passes every structural assert above.
+    // Real walk frames from a photo scene hold 30+; 20 is a safe floor.
+    const chordSharpness = pngLuminanceStddev(chordLast)
+    t.ok(
+      chordSharpness > 20,
+      `walk frames from the native scene keep structural detail ` +
+        `(luminance stddev ${chordSharpness.toFixed(1)} > 20; ` +
+        `blur/garbage collapse lands at 8-12)`
     )
 
     // 3. unload() with a block still streaming: the in-flight response must
@@ -481,6 +729,7 @@ test(
   { skip, timeout: 2_400_000 },
   async (t) => {
     setupJsLogger()
+    t.teardown(releaseJsLogger)
 
     const provisioned = await provisionWorldGeneration(t)
     if (!provisioned) return

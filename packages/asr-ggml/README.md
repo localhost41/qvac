@@ -26,6 +26,7 @@ breaking changes the merge introduced.
   - [Parakeet — duplex streaming `runStreaming()`](#parakeet--duplex-streaming-runstreaming)
 - [Engine Selection](#engine-selection)
 - [API Surface](#api-surface)
+- [Assessing fit](#assessing-fit)
 - [Configuration Reference](#configuration-reference)
 - [Audio Input](#audio-input)
 - [Backends and GPU Acceleration](#backends-and-gpu-acceleration)
@@ -74,11 +75,16 @@ GGUF metadata** — there is no `modelType` to pass.
 |---------|-----------|---------|-------------:|-------|
 | **CTC** (`parakeet-ctc-0.6b`) | English | argmax CTC | ~700 MiB | Fast, no punctuation/capitalization |
 | **TDT** (`parakeet-tdt-0.6b-v3`) | ~25 | RNN-T greedy + duration | ~715 MiB | Recommended default; PnC + language auto-detect |
-| **Unified** (`parakeet-unified-en-0.6b`) | English | RNN-T | ~715 MiB | One checkpoint for batch and low-latency streaming; PnC |
+| **Unified** (`parakeet-unified-en-0.6b`) | English | RNN-T | ~715 MiB | One checkpoint for batch and cache-aware streaming at 80/160/560/1040 ms; PnC |
 | **EOU** (`parakeet-eou-120m-v1`) | English | RNN-T greedy + `<EOU>` | ~132 MiB | Streaming-trained; native end-of-turn token |
 | **Indic Conformer CTC** (`indic-conformer-ctc`) | Indic aggregate | argmax CTC + language mask | ~701 MiB | Multilingual Indic; set `parakeetConfig.language` (e.g. `"hi"`) |
 | **Sortformer v1** (`sortformer-4spk-v1`) | n/a | Diarization head (sliding history) | ~141 MiB | 4-speaker. Default for **offline** diarization |
 | **Sortformer v2.1 + AOSC** (`diar_streaming_sortformer_4spk-v2.1`) | n/a | Diarization head + speaker cache | ~141 MiB | 4-speaker. Default for **streaming** diarization; AOSC anchors speaker slots across silence, auto-detected from GGUF metadata |
+
+On macOS and iOS, TDT, Unified, EOU, and Sortformer v2.1 can also run their
+encoder on an optional Core ML sidecar; CTC and Indic Conformer CTC cannot
+with the pinned engine, and Sortformer v1 has no sidecar. See
+[Core ML encoder sidecars](#core-ml-encoder-sidecars-apple).
 
 Upstream `.nemo` checkpoints are NVIDIA's; see the
 [Parakeet model cards](https://huggingface.co/collections/nvidia/parakeet-asr-models-66b50d5a37b9580ee4ba93c2)
@@ -95,7 +101,7 @@ language coverage, translation, and diarization.
 | If you need… | Use this model | Notes |
 | --- | --- | --- |
 | Default multilingual / English ASR (batch or duplex stream) | `parakeet-tdt-0.6b-v3` (q8_0 GGUF) | Recommended Parakeet default: ~25 languages, punctuation/capitalization, language auto-detect, low-latency streaming. |
-| English batch and low-latency streaming with one checkpoint | `parakeet-unified-en-0.6b` | Standard RNN-T with punctuation and capitalization; use when multilingual TDT or native EOU tokens are not required. |
+| English batch and low-latency streaming with one checkpoint | `parakeet-unified-en-0.6b` | Standard RNN-T with punctuation and capitalization; use when multilingual TDT or native EOU tokens are not required. Streaming uses the native cache-aware encoder: `streamingChunkMs` accepts 80, 160, 560, or 1040 and `streamingRightLookaheadMs` 0, 80, 160, 240, 320, 560, or 1040, both snapped down to the nearest trained value. Defaults to 560 ms. |
 | Native end-of-turn for conversational / duplex English | `parakeet-eou-120m-v1` | Emits `<EOU>`; smallest Parakeet (~132 MiB). Pair with TDT when you need broader language coverage *and* EOU. |
 | Fast English-only, no punctuation | `parakeet-ctc-0.6b` | Lowest decode cost in the Parakeet family; no PnC. |
 | Indic-language ASR (Hindi and other Indic ids) | `indic-conformer-ctc` | Pass `parakeetConfig.language` (e.g. `"hi"`). Same Parakeet engine; GGUF lives under `indic_conformer/` in the registry. |
@@ -120,9 +126,9 @@ SDK code — see [Engine Selection](#engine-selection).
 |----------|-------------|-------------|--------|-------------|
 | macOS | arm64, x64 | 14.0+ | ✅ Tier 1 | Metal |
 | iOS | arm64 | 17.0+ | ✅ Tier 1 | Metal |
-| Linux | arm64, x64 | Ubuntu-22+ | ✅ Tier 1 | Vulkan; CUDA via `build:cuda` / `ASR_CUDA=ON` |
+| Linux | arm64, x64 | Ubuntu-22+ | ✅ Tier 1 | Vulkan; CUDA (x64 prebuild; arm64 via `build:cuda` / `ASR_CUDA=ON`) |
 | Android | arm64 | 12+ | ✅ Tier 1 | Vulkan, OpenCL (Adreno) |
-| Windows | x64 | 10+ | ✅ Tier 1 | Vulkan |
+| Windows | x64 | 10+ | ✅ Tier 1 | Vulkan; CUDA via `build:cuda` / `ASR_CUDA=ON` |
 
 **Dependencies:**
 
@@ -144,6 +150,48 @@ Then:
 
 ```bash
 npm install @qvac/asr-ggml
+```
+
+### Platform packages
+
+`@qvac/asr-ggml` is a meta package that ships the JavaScript wrapper only.
+The native prebuild for each desktop host lives in a version-locked platform
+package selected at install time through `os`/`cpu` filtered
+`optionalDependencies`:
+
+| Host | Package |
+| --- | --- |
+| linux-x64 (glibc) | `@qvac/asr-ggml-linux-x64` |
+| linux-arm64 (glibc) | `@qvac/asr-ggml-linux-arm64` |
+| darwin-arm64 | `@qvac/asr-ggml-darwin-arm64` |
+| darwin-x64 | `@qvac/asr-ggml-darwin-x64` |
+| win32-x64 | `@qvac/asr-ggml-win32-x64` |
+
+Do not depend on desktop platform packages directly. Supported installers are
+npm 7+, pnpm, bun, and Yarn Berry. Yarn v1 and `--omit=optional` installs skip
+the platform package and fail at require time with an error naming the missing
+package; a locally built `prebuilds/` directory in the package root always
+takes precedence. Use `require('@qvac/asr-ggml').resolveBackendsDir()` to
+locate the directory holding the host's prebuilt binaries and dynamically
+loaded ggml backends.
+
+Mobile targets are cross-built, so no install host ever matches their `os`,
+and `optionalDependencies` filtering can never select them. Mobile
+applications must declare the target's platform package as a direct
+dependency, pinned to the exact `@qvac/asr-ggml` version:
+
+| Target | Package |
+| --- | --- |
+| android-arm64 | `@qvac/asr-ggml-android-arm64` |
+| ios (device + simulators) | `@qvac/asr-ggml-ios` |
+
+```json
+{
+  "dependencies": {
+    "@qvac/asr-ggml": "x.y.z",
+    "@qvac/asr-ggml-android-arm64": "x.y.z"
+  }
+}
 ```
 
 ## Quickstart
@@ -364,6 +412,48 @@ Constructor options:
 - `{ type: 'vad', speaking, score, source }` for voice-activity events;
 - `{ type: 'endOfTurn', source, silenceDurationMs? }` for turn boundaries.
 
+## Assessing fit
+
+`assessFit` projects a load against the memory free right now. It reads model metadata and never weight data. Parakeet is GGUF, so the registry's weightless copy of a parakeet model answers the same as the model itself and the projection can run before it is downloaded. Whisper ships as `.bin`, which the registry has no weightless form for, so a whisper projection needs the file. It is a module export, not an instance method — nothing is loaded to call it.
+
+```js
+const ASRGgml = require('@qvac/asr-ggml')
+
+const fit = ASRGgml.assessFit({
+  engine: 'whisper',
+  modelPath: '/models/whisper.bin',
+  vadModelPath: '/models/silero-vad.bin',
+  audioSeconds: 300,
+  decoders: 5
+})
+
+fit.status // 'fits' | 'does-not-fit' | 'error'
+fit.reason // the engine's own wording, e.g. 'model-unreadable', 'workload-too-large'
+fit.modelType // whisper: 'tiny' … 'large v3'; parakeet: 'ctc' | 'rnnt' | 'tdt' | 'eou' | 'nemotron' | 'sortformer'
+fit.deviceName
+fit.deviceBytes
+fit.weightsBytes
+fit.hostBytes
+fit.report
+```
+
+`engine` picks the fitter and defaults to parakeet. Each engine fills its own breakdown on the result: whisper reports `kvBytes`, `computeBytes`, `vadBytes` and `hostOverflowBytes`; parakeet reports `encoderComputeBytes`, `decoderStateBytes` and `decoderComputeBytes`.
+
+| Option | Description |
+| --- | --- |
+| `modelPath` | **Required.** Absolute path to the model, or to the registry's weightless copy where one exists. |
+| `audioSeconds` | Longest single transcribe the projection must cover. Defaults to 300. |
+| `gpuLayers` | Greater than 0 requests the GPU stack, with the fallbacks a real load applies. Omitted, parakeet projects on the CPU and whisper on the GPU, matching what each load does. |
+| `marginBytes` | Free memory that must remain for the projection to count as fitting. Defaults to the engine's own headroom, which is 256 MiB for parakeet. |
+| `backendsDir` | The prebuilds root. The backends are read from the per-target subdir under it, the same path a load reads. |
+| `vadModelPath` | Whisper: projected alongside the model. Omitted means no VAD. |
+| `decoders` | Whisper: worst-case resident decoders, the `best_of` or `beam_size` the run will use. The KV cache and decode graph grow with it. |
+| `flashAttn`, `gpuDevice` | Whisper: as the load takes them. |
+| `threads`, `longFormWindowFrames`, `longFormContextFrames` | Parakeet: as the load takes them. |
+| `nemotronChunkMs` | Nemotron: the streaming operating point the projection must also cover. 0 projects the largest allowed one. |
+
+A model the fitter cannot read is `status: "error"` with the engine's reason; only a broken request throws.
+
 ## Configuration Reference
 
 Configuration vocabularies are **engine-scoped** — there is no merged config
@@ -412,7 +502,7 @@ Notes:
 
 - **GPU is opt-in.** `use_gpu` defaults to `false`; set it in `contextParams`.
 - **Four context keys force a full reload** — `model`, `use_gpu`,
-  `flash_attn`, `gpu_device`. Changing any of them destroys and rebuilds the
+  `flash_attn`, `gpu_device`, `main-gpu`, `main_gpu`. Changing any of them destroys and rebuilds the
   whisper context (seconds, depending on model size). Everything in
   `whisperConfig` is applied in place.
 - `backendsDir` (in `whisperConfig`) overrides where dynamically-loaded ggml
@@ -503,35 +593,40 @@ that ends mid-sample is rejected.
 GPU backends are selected per platform via `vcpkg.json` features; no
 `bare-make generate` flag is needed:
 
-- **Linux / Windows** — Vulkan (needs the [Vulkan SDK](https://vulkan.lunarg.com/) on the build host)
+- **Linux / Windows** — Vulkan (needs the [Vulkan SDK](https://vulkan.lunarg.com/) on the build host); the linux-x64 prebuild additionally bundles CUDA, see below
 - **Android** — Vulkan + OpenCL (Adreno) as dynamically-loaded `.so` backends shipped beside the prebuild
-- **macOS / iOS** — Metal, statically linked
+- **macOS / iOS** — Metal, statically linked, plus the optional Parakeet
+  [Core ML encoder sidecars](#core-ml-encoder-sidecars-apple)
 
 **CUDA (Linux / Windows on NVIDIA)** needs `nvcc` on the build host, so it is
-gated behind the `ASR_CUDA` CMake option. The published linux-x64 prebuild
-does not enable it; build it yourself with `npm run build:cuda` (or
-`bare-make generate -D ASR_CUDA=ON`), which adds the `cuda` feature to the
-`speech-cpp` dependency and turns on `GGML_CUDA`. On linux-x64 the cuda
-feature flips ggml into hybrid dynamically-loaded backend mode: the
-CPU-variant, Vulkan, and CUDA backends ship as `.so` modules next to the
-addon, and only the CUDA module depends on the CUDA runtime. Engaging CUDA
-requires the NVIDIA driver (`libcuda.so.1`) plus the CUDA 13 runtime libraries
-(`libcudart` / `libcublas` / `libcublasLt`) resolvable at load time; hosts
-that cannot resolve them — including CPU-only and non-NVIDIA machines — skip
-the module and fall back to Vulkan or CPU instead of failing to load the
-addon. CUDA is compiled *alongside* Vulkan rather than replacing it; ggml
-registers CUDA ahead of Vulkan, so a `use_gpu` / `useGPU` request lands on
-CUDA when a supported device is present and falls back to Vulkan otherwise.
-Both engines report the winner through `getBackendInfo()` as `backendId: 2`
-(`BackendId.CUDA`).
+gated behind the `ASR_CUDA` CMake option — supported on linux-x64,
+linux-arm64 and win32-x64. The published linux-x64 prebuild turns it on (the
+prebuild workflow installs the CUDA toolkit); elsewhere build it yourself
+with `npm run build:cuda` (or `bare-make generate -D ASR_CUDA=ON`). The
+option adds the `cuda` feature to the `speech-cpp` dependency and turns on
+`GGML_CUDA`. Every linux-x64 and linux-arm64 build, and win32-x64 with the
+cuda feature, uses ggml's hybrid dynamically-loaded backend mode: the
+per-arch CPU-variant and Vulkan backends ship as runtime-loaded modules
+(`.so` on Linux, `.dll` on Windows) next to the addon, the cuda builds add
+the CUDA module, and only that module depends on the CUDA runtime. Engaging
+CUDA requires the NVIDIA driver plus the CUDA 13 runtime libraries (cudart
+and cuBLAS) resolvable at load time; hosts that cannot resolve them —
+including CPU-only and non-NVIDIA machines — skip the module and fall back
+to Vulkan or CPU instead of failing to load the addon. CUDA is compiled
+*alongside* Vulkan rather than replacing it; ggml registers CUDA ahead of
+Vulkan, so a `use_gpu` / `useGPU` request lands on CUDA when a supported
+device is present and falls back to Vulkan otherwise. Both engines report
+the winner through `getBackendInfo()` as `backendId: 2` (`BackendId.CUDA`).
 
-A CUDA build's module targets **compute capability 7.5 and newer**, with
-native code for Turing (7.5 — RTX 20xx, GTX 16xx, T4), Ampere (8.0, 8.6),
+On x64 a CUDA build's module targets **compute capability 7.5 and newer**,
+with native code for Turing (7.5 — RTX 20xx, GTX 16xx, T4), Ampere (8.0, 8.6),
 Ada (8.9), Hopper (9.0) and Blackwell (12.0, 12.1). Anything newer JIT-compiles
-from the bundled 8.0 PTX on first use, a one-off compile the driver caches.
-Volta and Pascal fall outside CUDA 13's support entirely, so they have no code
-path here: the backend skips such devices at registration and the addon falls
-back to Vulkan or CPU.
+from the bundled 8.0 PTX on first use, a one-off compile the driver caches. On
+linux-arm64 the native set is Jetson Orin (8.7), Grace-Hopper (9.0) and
+GB10 / DGX Spark (12.1), with discrete Ampere+ cards and newer parts covered
+through the bundled 8.0 PTX. Volta and Pascal fall outside CUDA 13's support
+entirely, so they have no code path here: the backend skips such devices at
+registration and the addon falls back to Vulkan or CPU.
 
 The addon takes no direct CUDA linkage — the CUDA module carries its own CUDA
 `DT_NEEDED` entries, which is what makes the graceful fallback possible — and
@@ -542,10 +637,30 @@ compiles the CUDA backend.
 Both engines default to CPU: whisper needs `contextParams.use_gpu: true`,
 parakeet needs `parakeetConfig.useGPU: true`.
 
+
+For Whisper GPU selection, set `contextParams['main-gpu']` (or the alias
+`contextParams.main_gpu`) to a raw ggml registry index, an integer string,
+`'dedicated'`, or `'integrated'` (class names are case-insensitive). With GPU
+enabled and no explicit selector, dedicated GPUs are preferred. A class
+selector is strict: if that class is unavailable, execution falls back to CPU.
+An in-range numeric selector preserves its registry identity before backend
+filtering; a CPU, excluded backend, or refused Adreno Vulkan slot falls back to
+CPU without selecting another GPU. An out-of-range index logs a warning and
+uses normal selection. The supported local families are Metal, CUDA, Vulkan,
+and OpenCL; the existing Adreno OpenCL guard still applies.
+
+`main-gpu` does not enable GPU execution by itself. `use_gpu: false` always
+selects CPU. The legacy `contextParams.gpu_device` retains its existing
+Whisper GPU/IGPU-ordinal meaning and Adreno guard. Combining it with either
+new selector spelling, or supplying both new spellings, is rejected.
+
+This selector currently applies to the Whisper engine.
+
 `getBackendInfo()` reports what actually ran — `backendName`, `backendId`
 (see the `BackendId` enum), string `backendDevice`, `backendDescription`,
-`encoderBackend`, and `encoderOnCoreml` (Apple: whether the Neural Engine
-Core ML sidecar drove the encoder). Whisper additionally reports
+`encoderBackend`, and `encoderOnCoreml` (Apple: whether a Parakeet Core ML
+encoder sidecar loaded; see
+[Core ML encoder sidecars](#core-ml-encoder-sidecars-apple)). Whisper additionally reports
 `gpuMemTotalMb` / `gpuMemFreeMb`. This differs from
 `RuntimeStats.backendDevice`, which is the native numeric device-class code.
 
@@ -553,7 +668,10 @@ Two paths matter on Android and Linux:
 
 - **`backendsDir`** (in `whisperConfig` / `parakeetConfig`) — root directory
   holding dynamically-loaded ggml backend libraries (CUDA, Vulkan, OpenCL,
-  per-arch CPU variants). Defaults to the package's `prebuilds/`; the native addon
+  per-arch CPU variants). Defaults to `resolveBackendsDir()`: the package's
+  own `prebuilds/` when present (local builds, mobile flatten), otherwise the
+  installed platform package (see [Platform packages](#platform-packages));
+  the native addon
   appends `<bare-target>/<module-name>` before scanning. Pass an explicit path
   when backend libraries ship elsewhere — e.g. Android's
   `ApplicationInfo.nativeLibraryDir` when they are packaged inside the APK.
@@ -561,6 +679,50 @@ Two paths matter on Android and Linux:
 - **`openclCacheDir`** (parakeet) — persistent directory for ggml-opencl's
   compiled program-binary cache. Android-only; pass the host app's cache
   directory to avoid a cold `clBuildProgram` on every process start.
+
+### Core ML encoder sidecars (Apple)
+
+The macOS and iOS prebuilds are built with the `speech-cpp` `coreml` feature,
+so a Parakeet model can run its FastConformer encoder on Apple Core ML (the
+Neural Engine) while mel preprocessing and the decoder or speaker head stay on
+the ggml backend. It is opt-in by presence: at `load()` the engine looks for a
+compiled `<stem>-encoder.mlmodelc` next to the GGUF, where `<stem>` is the GGUF
+name with its quantization suffix stripped, so one sidecar serves every tier
+(`parakeet-tdt-0.6b-v3.q8_0.gguf` and `.f16.gguf` both resolve to
+`parakeet-tdt-0.6b-v3-encoder.mlmodelc`). The published models ship without
+sidecars, so a model directory behaves as before until you stage one. A
+missing sidecar, an input shape it does not take, or a failed prediction falls
+back to ggml, and `PARAKEET_COREML_DISABLE=1` in the process environment forces
+ggml.
+
+| Model | Sidecar | Inputs it takes | Runs on ggml instead |
+| --- | --- | --- | --- |
+| TDT (`parakeet-tdt-0.6b-v3`) | `<stem>-encoder.mlmodelc` | any length: shorter inputs are zero-padded to the compiled shape, longer offline inputs are split into overlapping windows | only on fallback |
+| Unified (`parakeet-unified-en-0.6b`) | `<stem>-encoder.mlmodelc` | `run()`, padded or windowed like TDT | `runStreaming()`, which uses the cache-aware encoder |
+| EOU (`parakeet-eou-120m-v1`) | `<stem>-encoder.mlmodelc` | inputs of exactly the compiled mel length | every other length, including streaming windows of a different length |
+| Sortformer v2.1 + AOSC | `<stem>-encoder.mlmodelc` (batch), `<stem>-encoder-bypass-pre-encode.mlmodelc` (AOSC) | batch: exactly the compiled length; AOSC: slabs up to the masked capacity (410 encoder frames for the default geometry) | other batch lengths, larger AOSC slabs; the speaker head always |
+| CTC (`parakeet-ctc-0.6b`), Indic Conformer CTC | none in the pinned `speech-cpp` | — | always (the engine adds CTC sidecars from `speech-cpp` `2026-09-24`) |
+| Sortformer v1 | none | — | always |
+| Whisper | none: the `whisper` feature builds without `WHISPER_COREML` | — | always |
+
+`getBackendInfo().encoderOnCoreml` (with `encoderBackend: 'coreml'`) and
+`RuntimeStats.encoderOnCoreml` report that a sidecar loaded at `load()`, not
+that a given call ran on it: an EOU input of another length, a Unified
+`runStreaming()` session, or a failed prediction still runs the encoder on
+ggml with the flag set. For what a job actually did, read
+`RuntimeStats.encoderUsedCoreml`: `1` when every offline ASR transcription in
+the job ran its encoder on Core ML, `0` when any ran on ggml. The engine
+reports per-call routing only for offline ASR, so the field is absent after
+Sortformer diarization and streaming jobs. Export sidecars with
+`engines/parakeet/scripts/export-encoder-coreml.py`, preferably from an `f16`
+or `f32` GGUF (a quantized source works, but its rounding is baked into the
+sidecar every tier shares), from the
+[`qvac-fabric-speech.cpp`](https://github.com/tetherto/qvac-fabric-speech.cpp)
+tree at the ref `speech-cpp` pins; its
+[Parakeet backends guide](https://github.com/tetherto/qvac-fabric-speech.cpp/blob/master/engines/parakeet/docs/backends.md#core-ml-encoder-sidecar)
+has the per-model export commands. The
+[Core ML RTF lanes](#core-ml-apple-neural-engine-rtf-lanes) record what the
+TDT sidecar gains over Metal.
 
 ## Staging Models
 
@@ -698,7 +860,8 @@ Accuracy (WER / CER / AraDiaWER) and RTF benchmarks live under
   `src/main.py` dispatches on the config's required top-level `engine:` key
   over `src/whisper/` and `src/parakeet/`.
 - `benchmarks/client/config/config-whisper*.yaml` (incl. three Common Voice
-  Arabic variants) and `config-parakeet{,-ctc,-eou,-sortformer}.yaml`.
+  Arabic variants) and
+  `config-parakeet{,-unified,-ctc,-eou,-sortformer,-indic-conformer}.yaml`.
 - `benchmarks/manual-results/{whisper,parakeet}/` — drop RTF artifacts for
   backends CI cannot host.
 - `benchmarks/ci/` — the HuggingFace → GGML conversion step the accuracy
@@ -717,6 +880,78 @@ npm run test:benchmark:rtf:matrix
 `scripts/trigger-benchmark.sh -e whisper|parakeet` dispatches the CI accuracy
 workflow. Aggregated historical results:
 [`benchmarks/results/results_summary.md`](benchmarks/results/results_summary.md).
+
+### Core ML (Apple Neural Engine) RTF lanes
+
+On darwin the parakeet TDT matrix also has `coreml` lanes, which run the
+FastConformer **encoder** on the Neural Engine via an exported
+`<stem>-encoder.mlmodelc` sidecar while the TDT decoder stays on Metal. Add
+`"coreml": true` to a parakeet matrix entry:
+
+```json
+{ "engine": "parakeet", "modelType": "tdt", "quant": "f16", "useGPU": true, "coreml": true }
+```
+
+Three things are worth knowing before touching these lanes:
+
+- **The sidecar is presence-driven.** parakeet.cpp derives the sidecar path
+  from the GGUF path and strips a trailing quant tag, so one
+  `parakeet-tdt-0.6b-v3-encoder.mlmodelc` serves the f16/q8_0/q4_0 GGUFs. It
+  therefore cannot live in `models/` — every CPU and Metal lane would silently
+  start measuring the ANE. Core ML entries run against an isolated
+  `models/coreml/` copy instead, staged by the matrix runner.
+- **The export is traced at one mel length.** That length is the TDT
+  sidecar's fixed capacity: shorter utterances are zero-padded up to it and
+  longer ones are split into overlapping windows, so every length runs on the
+  ANE, but only a matching one runs as a single unpadded pass. The lanes'
+  sidecar is therefore sized to the benchmark's own sample —
+  `examples/samples/sample.raw` (20.13 s ⇒ `1 + 322137/160` = **2014** mel
+  frames). Changing that sample means re-exporting, or the lane measures
+  padding or windowing. A variable-length (`--flexible`) export exists but
+  places **zero** ops on the ANE, so it is for numerical checks only, never for
+  benchmarking.
+- **A lane can never publish a mislabelled number.** `activeBackend` is derived
+  from each measured run's `encoderUsedCoreml` stat, which reports where that
+  run's encoder actually ran. The benchmark refuses to *write* an artifact when
+  a Core ML lane has any run whose encoder fell back to ggml, or when a
+  non-Core ML lane has any run on Core ML. The check runs before the artifact
+  is written, because the artifact is written before the test's own
+  assertions run.
+
+Sidecars are pinned in
+[`test/integration/parakeet-coreml.manifest.json`](test/integration/parakeet-coreml.manifest.json)
+and staged by `scripts/stage-integration-models.mjs`. **Until a bundle is
+published there the Core ML lanes skip themselves loudly** and the rest of the
+matrix is unaffected.
+
+To produce a sidecar, use `export-encoder-coreml.py` from the `speech-cpp`
+source tree at the ref pinned in `vcpkg.json`, seeded with an **f16 or f32**
+GGUF so the sidecar every quant tier shares carries unrounded weights:
+
+```bash
+python scripts/export-encoder-coreml.py \
+  --gguf models/parakeet-tdt-0.6b-v3.f16.gguf \
+  --n-mel-frames 2014 \
+  --out parakeet-tdt-0.6b-v3-encoder.mlpackage \
+  --compile-dir models/coreml
+```
+
+It prints the op placement; a good export is overwhelmingly `NeuralEngine`
+(the reference export is `NeuralEngine=1334, GPU=14, CPU=1`).
+
+Measured on an Apple M1 Pro (macOS 15.1.1, addon 0.4.2, `sample.raw`, 5 runs
+per lane) — full artifacts in
+[`benchmarks/manual-results/parakeet/`](benchmarks/manual-results/parakeet):
+
+| Quant | CPU | Metal | Core ML | ANE vs Metal |
+|-------|-----|-------|---------|--------------|
+| f16   | 0.09614 | 0.00751 | **0.00625** | 1.20x |
+| q8_0  | 0.04246 | 0.00847 | **0.00706** | 1.20x |
+| q4_0  | 0.04269 | 0.00718 | **0.00566** | 1.27x |
+
+Mean RTF, lower is better. The ANE encoder costs peak RSS (~+120-180 MB over
+the Metal lane) and additional load time to initialise the sidecar, so it pays
+off across many utterances in one process rather than for a single short one.
 
 ## Examples
 

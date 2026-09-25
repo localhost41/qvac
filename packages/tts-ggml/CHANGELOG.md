@@ -7,6 +7,204 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-25
+
+### Added
+
+- Native Pocket TTS with converted FlowLM/Mimi bundles, prepared voices or
+  reference-WAV conditioning, and native audio streaming through the addon
+  run, runStream and runStreaming APIs. Supports explicit flow-sampling steps;
+  four steps are recommended for the observed one-step speech artifact.
+
+- Apple Core ML (Neural Engine) sidecars on the macOS / iOS builds, for the
+  Supertonic vocoder and the Audio8 codec. Presence-driven: a stage runs on a
+  compiled `.mlmodelc` staged next to its model file and falls back to ggml
+  when it is absent, so existing model directories are unaffected. On an
+  Apple M4 the Supertonic vocoder is 1.6-2.9x faster than on Metal; on
+  workstation-class GPUs Metal still wins, so sidecars are staged per
+  deployment. `q4_0` models keep the ggml vocoder.
+- **CosyVoice3 weight tiers in the README.** The model-directory layout now
+  names the flow (`f16` / `bf16` / `q8_0` / `q4_0`) and HiFT (`f16`) tiers the
+  engine accepts beside `f32`, and which one is fastest on each backend.
+  Component resolution goes by filename prefix and does not rank
+  quantizations, so stage one file per component or name it explicitly.
+- **Audio8 Core ML runtime stats.** `codecSidecarLoaded` reports whether the
+  codec sidecar remains attached; `codecOnCoreml` reports whether the last
+  synthesis used it. Both flags survive streaming as the last reported chunk
+  value, reset on unload, and ignore results from an engine replaced by reload.
+- MOSS engine (`engine: 'moss'`, OpenMOSS MOSS-TTS v1.5 Delay): 24 kHz
+  synthesis from a backbone and the two codec halves (`files.mossBackbone`,
+  `files.mossCodecDecoder`, and `files.mossCodecEncoder` to clone a voice from
+  `referenceAudio`), auto-detected from `modelDir`. `streamChunkTokens > 0`
+  streams fixed-size chunks of codec frames (12.5 per second) while the
+  backbone is still generating. `durationTokens` sets a target length,
+  `[pause Ns]` markers and inline Pinyin / IPA steer the speech, and
+  `dialogueReferences` (one 24 kHz recording per speaker, with the text opening
+  with their transcripts) drives MOSS-TTSD multi-speaker dialogue on the
+  `moss-ttsd-*.gguf` backbone. Desktop only: the backbones have 8B parameters.
+- Engine options, results and library queries that tts-cpp already provided
+  but the addon did not expose:
+  - Chatterbox: `nPredict` (the per-call speech-token cap, previously fixed at
+    1000 tokens, about 40 s), `maxSentenceChars` / `crossfadeMs` sentence
+    auto-split, `batchCfmSteps` for batch synthesis (`cfmSteps` keeps driving
+    native streaming), `streamLeftContextTokens` for bounded per-chunk cost on
+    long streams, `temperature` / `topK` / `topP` / `repeatPenalty` sampling, and
+    the multilingual `exaggeration` / `cfgWeight` / `minP` controls. Stats gain
+    `t3Ms`, `s3genMs` and `t3Tokens`.
+  - Supertonic: native chunk streaming (`streamChunkTokens`,
+    `streamFirstChunkTokens`, `streamChunkTolerancePct`, `streamMinChunkTokens`),
+    which the constructor used to reject; external voices through
+    `voiceJsonPath`; `prewarmText`; and `vulkanDevice`. Native streaming is
+    rejected together with the LavaSR enhancer or denoiser.
+  - CosyVoice3: per-call `instruct` on `run()` / `runStream()` /
+    `runStreaming()`; `files.cosyvoiceVocab` / `cosyvoiceMerges` /
+    `cosyvoiceVoiceModel` to point at the text frontend and a baked voice outside
+    the model dir; `vulkanDevice`; `flowCutPrompt`; and the engine's per-stage
+    timings and work counters in the stats.
+  - Audio8: the engine's per-stage timings in the stats.
+  - LavaSR denoiser: runs on the GPU when the engine does (it was always on the
+    scalar CPU core), and reports `denoiserBackendDevice` / `denoiserBackendId`.
+    The enhancer follows `vulkanDevice` on Supertonic and CosyVoice3.
+  - `TTSGgml.getVoiceControls()`: tts-cpp's emotion / pace vocabulary and each
+    engine's supported subset, without loading a model.
+  - ggml log lines (backend selection, device enumeration) reach the JS logger
+    through tts-cpp's `tts_cpp_log_set` instead of stderr. Engine diagnostics
+    that tts-cpp still prints straight to stderr are unaffected.
+
+### Changed
+
+- Release the loaded Pocket model before activating its replacement on reload,
+  avoiding two live model allocations. Failed activation leaves the instance
+  unloaded with its last successful configuration available for `load()`.
+- Expose optional firstAudioMs stats and chunkIndex/isLast output metadata;
+  preserve first-audio latency during streaming aggregation.
+- Include the Pocket CPU planner and EOS-tail fixes from the speech dependencies.
+- Resolve Pocket CPU memory planning through the dynamically loaded backend,
+  fixing unresolved `ggml_graph_plan` imports in Linux and Android prebuilds.
+- Raise the `ggml-speech` floor to `2026-09-23` and the `speech-cpp` floor to
+  `2026-09-24` for the MOSS engine above. The speech ggml now tracks upstream
+  ggml 0.20.2 (was 0.10.2),
+  and its Vulkan backend no longer crashes during CosyVoice3 GPU synthesis on
+  NVIDIA GPUs that report cooperative-matrix2 support. The pinned engine also
+  brings the MOSS engine above, and Parler and Audio8 now accept a weightless
+  fit-measure model that carries no vocabulary, which a memory-fit measurement
+  never needs; loading a real model is unchanged and still requires one.
+  Existing CosyVoice3 and Supertonic models are unaffected, and there is no API
+  change beyond the MOSS additions above.
+- Raise the `speech-cpp` floor to `2026-09-21`, for the Core ML sidecars above
+  and for a round of CosyVoice3 optimizations that needs no model change. On
+  Metal, single-token LM decode runs one flash-attention op per layer instead
+  of a masked matmul/softmax chain, and the DiT's grouped positional
+  convolution collapses from 64 dispatches per Euler step to one batched
+  im2col plus one batched matmul. On every backend the HiFT snake activations
+  emit one fused op instead of about five, and the vocoder's host-side sine
+  excitation is threaded across the `threads` option — the one vocoder cost a
+  faster GPU does not shrink (59.7 → 34.7 ms on an M3 Ultra, byte-identical
+  output). End to end that is 1.12x on an M3 Ultra, rising to 1.20x with an LM
+  GGUF re-converted to the fused q/k/v layout, which the engine reads
+  alongside the existing separate projections.
+- Raise the `speech-cpp` floor to `2026-09-18`. Audio8 synthesis is faster on
+  CUDA builds (the decode loop issues far fewer kernel launches per frame), and
+  CosyVoice3 gains a `bf16` flow tier for AVX512-BF16 CPUs. Existing GGUFs keep
+  working; the `bf16` tier needs re-converted flow files.
+- Raise the `speech-cpp` floor to `2026-09-16`. CosyVoice3 synthesis is faster
+  with no model change: on an AMD Strix Halo the reference-exact path gains
+  1.3-1.4x on Vulkan and 1.6-1.8x on CPU, from flash-attention in the flow
+  DiT and an LM KV cache that no longer re-copies itself each token. Existing
+  CosyVoice3 GGUFs keep working; the engine's new quantized flow / f16 HiFT
+  tiers require re-converted model files.
+
+## [0.9.2] - 2026-09-16
+
+### Fixed
+
+- Mobile platform packages (`@qvac/tts-ggml-android-arm64`, `@qvac/tts-ggml-ios`)
+are no longer `os`-filtered `optionalDependencies` of the meta package. No
+build host ever reports a mobile `os`, so installers could never select them
+during a cross-build and mobile bundles failed verification with missing
+prebuilds. They now publish without install filters; mobile applications
+declare the target's platform package as a direct dependency pinned to the
+exact meta package version.
+
+## [0.9.1] - 2026-09-15
+
+This release repairs native binding resolution for the per-platform prebuild
+layout introduced in 0.9.0. On hosts where the binding was resolved to the
+wrong module, every model load failed; the loader now verifies what it was
+handed instead of trusting it.
+
+## Bug Fixes
+
+### The addon loader no longer exports a non-binding
+
+Since the 0.9.0 per-platform split this package ships no `prebuilds/` of its
+own, so `require.addon()` is expected to miss and the real binding comes from
+the `#host-addon` platform package. Some runtimes answer that call with this
+package's own JavaScript entry — the `TTSGgml` class — rather than failing, and
+`binding.js` returned it verbatim. Consumers then received a module with no
+`createInstance`, the platform package was never consulted even though it was
+installed and loadable, and the first visible symptom was an unrelated
+`this._binding.createInstance is not a function` deep inside a model load, or a
+`logging.module must have a setLogger(callback) function` rejection when a host
+attached an addon logger. `binding.js` now treats anything without a
+`createInstance` function as a miss and falls through to the platform package,
+so a host that has the correct platform package installed loads normally.
+
+When neither source yields the native binding, the failure is now reported at
+the point of loading and names the cause: a missing platform package keeps the
+existing message naming the exact `@qvac/tts-ggml-<host>` package to install,
+and a platform package that resolves to something other than the binding
+raises an error saying so instead of silently degrading.
+
+## Pull Requests
+
+- [#4485](https://github.com/tetherto/qvac/pull/4485) - fix: reject a non-binding from require.addon() and fall back to the platform package
+
+
+## [0.9.0] - 2026-09-11
+
+### Added
+
+- The published linux-x64 prebuild ships the CUDA backend again, next to
+  Vulkan and the CPU variants: with the per-platform prebuild packages the
+  CUDA module no longer pushes one npm tarball over the registry size limit.
+  CUDA stays a runtime-loaded module — it wins the GPU cascade only where the
+  NVIDIA driver and the CUDA 13 runtime libraries (cudart, cuBLAS) resolve at
+  load time; every other host keeps Vulkan or CPU. `npm run build:cuda`
+  builds the same configuration from source.
+
+- Opt-in CUDA builds (`ENABLE_CUDA=ON`) now work on win32-x64 and linux-arm64
+  in addition to linux-x64. The CUDA backend ships as a runtime-loaded module
+  (`.dll` on Windows, `.so` on Linux) next to the addon, so a CUDA-enabled
+  build still loads on hosts without an NVIDIA stack and falls back to Vulkan
+  or CPU. linux-arm64 targets Jetson Orin (8.7), Grace-Hopper (9.0) and
+  GB10 / DGX Spark (12.1) natively, with 8.0 PTX for discrete Ampere+ cards.
+  Published linux-arm64 and win32-x64 prebuilds are unchanged (Vulkan).
+
+### Changed
+
+- Raise the `speech-cpp` floor to 2026-09-10 (one aligned stack across the
+  speech packages) and floor `ggml-speech` at 2026-09-09#1: fixes a Windows
+  CUDA crash on engine unload and a stale backend-capability cache that could
+  abort GPU synthesis after backend reloads, and brings in the fused speech
+  ops and CUDA-graphs decode path. Supertonic reaches 2x+ real-time Vulkan
+  synthesis for q8_0 and f16, runs one-graph duration and text encoders with
+  the CFM loop's CFG batched along time, and keeps the fused graph path on
+  CPU builds without a pointwise BLAS; CPU inference picks up tinyBLAS on
+  x86 Linux and Apple silicon.
+
+- **Per-platform prebuild packages.** `@qvac/tts-ggml` is now a meta package
+  that ships the JavaScript wrapper only; native prebuilds install through
+  `os`/`cpu` filtered `optionalDependencies` (`@qvac/tts-ggml-<platform>-<arch>`,
+  iOS flavours grouped in `@qvac/tts-ggml-ios`), version-locked to the meta
+  package. Breaking for the published file layout:
+  `node_modules/@qvac/tts-ggml/prebuilds` no longer exists in npm installs —
+  use the new `resolveBackendsDir()` export instead of hardcoding that path.
+  Supported installers are npm 7+, pnpm, bun, and Yarn Berry; Yarn v1 and
+  `--omit=optional` installs fail at require time with an error naming the
+  missing platform package. A locally built `prebuilds/` directory keeps
+  taking precedence, so source builds are unaffected.
+
 ## [0.8.1] - 2026-09-01
 
 ### Changed

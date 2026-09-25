@@ -40,23 +40,69 @@ Android arm64, and iOS arm64. You also need the model GGUFs on disk (see
 [Models](#models)); point the addon at the folder that holds them.
 MiniMax-Music3 is available only in the Linux, macOS, and Windows prebuilds.
 
-The published linux-x64 prebuild ships Vulkan. CUDA is opt-in at build time
-via `bare-make generate -D ENABLE_CUDA=ON` (needs `nvcc` on the build host).
-When CUDA is compiled in, ggml runs in hybrid dynamically-loaded backend
-mode: the CPU-variant, Vulkan, and CUDA backends ship as `.so` modules beside
-the addon, and only the CUDA module depends on the CUDA runtime. Engaging
-CUDA needs the NVIDIA driver plus the CUDA 13 runtime libraries (cudart and
-cuBLAS) resolvable at load time; hosts that cannot resolve them skip the
-module and fall back to Vulkan or CPU. The engine prefers CUDA when both GPU
-backends are usable.
+### Platform packages
 
-A CUDA build's module targets **compute capability 7.5 and newer**, with
-native code for Turing (7.5 — RTX 20xx, GTX 16xx, T4), Ampere (8.0, 8.6),
-Ada (8.9), Hopper (9.0) and Blackwell (12.0, 12.1). Anything newer JIT-compiles
-from the bundled 8.0 PTX on first use, a one-off compile the driver caches.
-Volta and Pascal fall outside CUDA 13's support entirely, so they have no code
-path here: the backend skips such devices at registration and the addon falls
-back to Vulkan or CPU.
+`@qvac/audiogen-ggml` is a meta package that ships the JavaScript wrapper
+only. The native prebuild for each desktop host lives in a version-locked
+platform package selected at install time through `os`/`cpu` filtered
+`optionalDependencies`:
+
+| Host | Package |
+| --- | --- |
+| linux-x64 (glibc) | `@qvac/audiogen-ggml-linux-x64` |
+| linux-arm64 (glibc) | `@qvac/audiogen-ggml-linux-arm64` |
+| darwin-arm64 | `@qvac/audiogen-ggml-darwin-arm64` |
+| darwin-x64 | `@qvac/audiogen-ggml-darwin-x64` |
+| win32-x64 | `@qvac/audiogen-ggml-win32-x64` |
+
+Do not depend on desktop platform packages directly. Supported installers are
+npm 7+, pnpm, bun, and Yarn Berry. Yarn v1 and `--omit=optional` installs skip
+the platform package and fail at require time with an error naming the missing
+package; a locally built `prebuilds/` directory in the package root always
+takes precedence. Use `require('@qvac/audiogen-ggml').resolveBackendsDir()`
+to locate the directory holding the host's prebuilt binaries and dynamically
+loaded ggml backends.
+
+Mobile targets are cross-built, so no install host ever matches their `os`,
+and `optionalDependencies` filtering can never select them. Mobile
+applications must declare the target's platform package as a direct
+dependency, pinned to the exact `@qvac/audiogen-ggml` version:
+
+| Target | Package |
+| --- | --- |
+| android-arm64 | `@qvac/audiogen-ggml-android-arm64` |
+| ios (device + simulators) | `@qvac/audiogen-ggml-ios` |
+
+```json
+{
+  "dependencies": {
+    "@qvac/audiogen-ggml": "x.y.z",
+    "@qvac/audiogen-ggml-android-arm64": "x.y.z"
+  }
+}
+```
+
+The published linux-x64 prebuild bundles the CUDA backend next to Vulkan; the
+linux-arm64 and Windows prebuilds ship Vulkan, and there CUDA is opt-in at
+build time via `npm run build:cuda` (or `bare-make generate -D ENABLE_CUDA=ON`;
+needs `nvcc` on the build host). When
+CUDA is compiled in, ggml runs in hybrid dynamically-loaded backend mode: the
+CPU-variant, Vulkan, and CUDA backends ship as runtime-loaded modules (`.so` on
+Linux, `.dll` on Windows) beside the addon, and only the CUDA module depends on
+the CUDA runtime. Engaging CUDA needs the NVIDIA driver plus the CUDA 13 runtime
+libraries (cudart and cuBLAS) resolvable at load time; hosts that cannot resolve
+them skip the module and fall back to Vulkan or CPU. The engine prefers CUDA
+when both GPU backends are usable.
+
+On x64 a CUDA build's module targets **compute capability 7.5 and newer**, with
+native code for Turing (7.5 — RTX 20xx, GTX 16xx, T4), Ampere (8.0, 8.6), Ada
+(8.9), Hopper (9.0), and Blackwell (12.0, 12.1). Anything newer JIT-compiles
+from the bundled 8.0 PTX on first use, a one-off compile the driver caches. On
+linux-arm64 the native set is Jetson Orin (8.7), Grace-Hopper (9.0), and
+GB10 / DGX Spark (12.1), with discrete Ampere+ cards and newer parts covered
+through the bundled 8.0 PTX. Volta and Pascal fall outside CUDA 13's support
+entirely, so they have no code path here: the backend skips such devices at
+registration and the addon falls back to Vulkan or CPU.
 
 To build the native addon from source in a repository checkout:
 
@@ -140,6 +186,7 @@ const stats = await response.await()
 // backendDevice:     0 = CPU, 1 = GPU
 // backendId:         0 = CPU, 1 = Metal, 2 = CUDA, 3 = Vulkan, 4 = OpenCL, 99 = other
 // gpuFallbackReason: 0 = none, 1 = not requested, 2 = no devices, 3 = init failed
+// lyricsScore + lrc: alignment confidence and LRC text, only with generateLrc
 // qualityScore:      [0, 1], present only when the run set computeQualityScore
 
 await gen.destroy()
@@ -291,6 +338,59 @@ AUDIOGEN_MODEL_DIR=/path/to/models \
   npm run example:simple
 ```
 
+### LRC generation: karaoke-style synchronized lyrics
+
+With `generateLrc: true` the engine aligns the lyrics with the generated
+audio (a DiT cross-attention probe plus DTW over the validated lyric heads)
+and delivers standard LRC text — one `[mm:ss.xx]` timestamp per lyric line —
+in `stats.lrc`, with an alignment confidence in `stats.lyricsScore`:
+
+```js
+const response = await gen.run(caption, {
+  generateLrc: true,
+  lyrics: '[verse]\nDancing with you under the moonlight'
+})
+// ...collect the PCM...
+const stats = await response.await()
+fs.writeFileSync('song.lrc', stats.lrc)
+```
+
+It requires lyrics to align — pass them explicitly or let Simple Mode write
+them; instrumental requests are rejected — and `taskType: 'text2music'`.
+End to end from the repo (writes `audiogen-lrc.wav` + `audiogen-lrc.lrc`):
+
+```bash
+AUDIOGEN_MODEL_DIR=/path/to/models \
+  npm run example:lrc
+```
+
+### Query Rewriting: keep your lyrics, upgrade your caption
+
+With `rewriteQuery: true` the LM FORMAT pass reworks a full request before
+synthesis: your caption is rewritten into a detailed musical description and
+the lyric content is preserved, with any unset metadata filled the same way
+Simple Mode does. Unlike Simple Mode — which expands a bare query and writes
+lyrics from scratch — Query Rewriting takes caption AND lyrics as input, so
+real `lyrics` are required (`'[Instrumental]'` belongs to Simple Mode) and the
+two options are mutually exclusive:
+
+```js
+const response = await gen.run('a short salsa idea', {
+  rewriteQuery: true,
+  lyrics: '[verse]\nsuena el tambor y el barrio se enciende',
+  seed: 4242
+})
+```
+
+Faithful rewriting (lyrics back verbatim, caption on-genre) needs the 1.7B LM
+(`acestep-5Hz-lm-1.7B`); the 0.6B drifts genre, voice, and language. End to
+end from the repo:
+
+```bash
+AUDIOGEN_MODEL_DIR=/path/to/models \
+  npm run example:rewrite
+```
+
 ### Quality scoring: rank a batch of takes
 
 With `computeQualityScore: true` the engine teacher-forces the generated audio
@@ -312,6 +412,32 @@ code path (`taskType: 'text2music'`). End to end from the repo:
 ```bash
 AUDIOGEN_MODEL_DIR=/path/to/models \
   npm run example:best-of
+```
+
+### Audio understanding: the pipeline in reverse
+
+`understand()` describes an audio clip instead of generating one: the engine
+encodes the PCM, recovers the FSQ semantic codes, and the LM reports metadata
+and a caption. The input is interleaved stereo float PCM at 48 kHz — the same
+layout `sourceAudio` uses:
+
+```js
+const response = await gen.understand(pcm, { seed: 42 })
+const stats = await response.await()
+const heard = stats.understand
+// { caption, bpm, duration, keyscale, timesignature, vocalLanguage, audioCodes }
+```
+
+The description streams as an `understand` output item (progress ticks report
+the `source`, `tok`, and `understand` stages) and is repeated on the terminal
+stats. `audioCodes` are the recovered semantic codes — pass them back as a
+generation's `audioCodes` to re-synthesize or remix the clip. A
+`vocalLanguage` hint forces the language field instead of the LM's guess.
+End to end from the repo (generates a clip, then describes it):
+
+```bash
+AUDIOGEN_MODEL_DIR=/path/to/models \
+  npm run example:understand
 ```
 
 ### Ordered audio editing
@@ -456,7 +582,7 @@ runnable end-to-end script (`npm run example`).
 | `cfgScale` | Default MiniMax flow guidance scale; `0` uses the model default. |
 | `nGpuLayers` | GPU layers to offload when `useGPU` is set (99 = all). |
 | `threads` | CPU thread count (0 / unset = hardware default). |
-| `backendsDir` | Advanced; override the prebuilds root scanned for dlopen'd ggml backend modules. Defaults to `<addon>/prebuilds` (correct for the shipped package). Needed on arm64, where the CPU backend is a set of per-microarch module `.so`s. |
+| `backendsDir` | Advanced; override the prebuilds root scanned for dlopen'd ggml backend modules. Defaults to `resolveBackendsDir()`: the package's own `prebuilds/` when present, otherwise the installed platform package. Needed on arm64, where the CPU backend is a set of per-microarch module `.so`s. |
 
 `logger` — an optional object implementing `error`/`warn`/`info`/`debug`,
 wrapped by a level-gated `QvacLogger`.
@@ -478,7 +604,9 @@ wrapped by a level-gated `QvacLogger`.
 | `lmTemperature` / `lmTopP` / `lmTopK` / `lmCfgScale` | LM sampling controls. |
 | `lmPhase1` | Allow the LM to infer missing metadata before generating semantic codes. |
 | `simpleMode` | Expand the caption query into a full request (caption, lyrics, unset metadata) before synthesis. |
+| `rewriteQuery` | LM FORMAT pass: rewrite the caption into a detailed description, preserving the lyric content. Requires real `lyrics` and `taskType: 'text2music'`; mutually exclusive with `simpleMode`. |
 | `normalizeLoudness` | Percentile loudness normalization of generated audio (default `true`); edits are never normalized. |
+| `generateLrc` | Synchronized lyric timestamps: `stats.lrc` (LRC text) + `stats.lyricsScore`. Requires lyrics and `taskType: 'text2music'`. |
 | `computeQualityScore` | Teacher-forced LM quality score of the generated codes; `stats.qualityScore` in `[0, 1]`. Requires `taskType: 'text2music'`. |
 | `dcwEnabled` / `dcwScaler` / `dcwHighScaler` | Haar DCW correction controls. |
 | `audioCodes` | Frozen ACE-Step semantic codes as an `Int32Array`; skips the LM. |
@@ -529,6 +657,58 @@ npx qvac-audiogen-download-models --output ./models/audiogen --variant turbo-q4
 `--output`/`-o` is required. `--variant`/`-v` accepts `turbo-q4`, `turbo-q8`,
 `sft`, or `all`; it defaults to `turbo-q4`. Use `--help` to print the flags.
 The command does not write into the installed package.
+
+## Assessing fit
+
+`assessFit` projects a load against the memory free right now. It reads GGUF
+metadata and never weight data, so the registry's weightless copy of each stage
+answers the same as the file itself and the projection can run before anything
+is downloaded. It is a module export, not an instance method — nothing is
+loaded to call it.
+
+```js
+const { assessFit } = require('@qvac/audiogen-ggml')
+
+const fit = assessFit({
+  modelsDir: '/models/ace-step',
+  durationSeconds: 30,
+  textTokens: 256,
+  lyricTokens: 256
+})
+
+fit.status // 'fits' | 'does-not-fit' | 'error'
+fit.reason // the engine's own wording, e.g. 'model-unreadable', 'workload-too-large'
+fit.modelName
+fit.isTurbo
+fit.deviceName
+fit.deviceBytes // peak across the pipeline phases under the projected residency mode
+fit.hostBytes
+fit.hostFreeBytes // host capacity, a budget of its own where the device has its own memory
+fit.stagesResident
+fit.report
+```
+
+`modelsDir` holds the four stage GGUFs; `textEncoderPath`, `lmPath`, `ditPath`
+and `vaePath` name them individually and win over it.
+
+| Option | Description |
+| --- | --- |
+| `durationSeconds` | Longest single generation the projection must accommodate. |
+| `textTokens`, `lyricTokens` | The prompt the projection is sized for. |
+| `lmPromptTokens` | 0 derives it from the text and lyric budgets. |
+| `lmMaxNewTokens` | 0 derives it from the duration, as the pipeline does. |
+| `lmCfgScale`, `guidanceScale` | 0 picks CFG or no CFG from the checkpoint. |
+| `withSourceAudio` | Projects the extra VAE-encoder phase a cover or reference request loads. |
+| `keepStages` | `-1` mirrors the engine, `0` forces the staged projection, `1` all-resident. |
+| `gpuLayers` | Greater than 0 requests the GPU stack, with the fallbacks a real load applies. |
+| `threads`, `backendsDir` | As the load takes them. |
+| `marginBytes` | Free memory that must remain for the projection to count as fitting. Defaults to 256 MiB. |
+
+`deviceSharesHostMemory` reports that the device pool is system RAM, so host
+bytes compete with device bytes.
+
+A model the engine cannot read is `status: "error"`; a broken request, or a
+host with no native binding, throws.
 
 ## Lifecycle
 

@@ -39,6 +39,7 @@ const {
   summarizeRunMemory,
   RECLAIM_SETTLE_MS
 } = require('../integration/parakeet-memory-usage.js')
+const { checkCoremlLane, resolveActiveBackend } = require('./coreml-lane.js')
 
 const platform = detectPlatform()
 const { samplesDir } = getTestPaths()
@@ -129,6 +130,10 @@ function getBenchmarkSettings() {
     deviceLabel,
     runnerLabel,
     label,
+    // Set only by the matrix runner's prepareCoremlEntry, and only after it
+    // has verified a staged sidecar. Turns the Core ML claim into an assertion
+    // rather than a label.
+    expectCoreml: getEnvBoolean('QVAC_PARAKEET_BENCHMARK_COREML', false),
     requestedUpperBound: process.env.QVAC_PARAKEET_BENCHMARK_RTF_UPPER_BOUND
   }
 }
@@ -437,6 +442,8 @@ test('RTF benchmark: collect real-time factor on CI device', { timeout: 600000 }
         totalWallMs: jobStats.totalWallMs || 0,
         backendDevice: typeof jobStats.backendDevice === 'number' ? jobStats.backendDevice : null,
         backendId: typeof jobStats.backendId === 'number' ? jobStats.backendId : null,
+        encoderOnCoreml: jobStats.encoderOnCoreml ? 1 : 0,
+        encoderUsedCoreml: jobStats.encoderUsedCoreml === 1 ? 1 : 0,
         avgRssBytes: runMemory.avgBytes,
         peakRssBytes: runMemory.peakBytes,
         rssSampleCount: runMemory.count
@@ -522,6 +529,28 @@ test('RTF benchmark: collect real-time factor on CI device', { timeout: 600000 }
     console.log('')
     console.log('='.repeat(70) + '\n')
 
+    // The published backend label is derived from what the engine actually
+    // did, never from what the lane asked for. On a Core ML lane the decoder
+    // still runs on the ggml backend, so "coreml" specifically means "every
+    // measured run ran the FastConformer encoder on the Neural Engine".
+    const coremlLane = checkCoremlLane({
+      runs: allResults,
+      expectCoreml: benchmarkSettings.expectCoreml
+    })
+    const activeBackend = resolveActiveBackend({
+      allRunsOnCoreml: coremlLane.allRunsOnCoreml,
+      backendName: observedBackendId !== null ? backendIdToName(observedBackendId) : ''
+    })
+
+    // Refuse to publish a mislabelled artifact. This gate runs BEFORE the
+    // write below, because the assertions at the end of this test run after
+    // it -- a failing assertion there would still leave a coreml-labelled JSON
+    // on disk for CI to upload and the aggregator to ingest.
+    if (coremlLane.failure) {
+      t.fail(coremlLane.failure)
+      return
+    }
+
     // --- Write JSON artifact ---
     const report = {
       timestamp: new Date().toISOString(),
@@ -544,7 +573,7 @@ test('RTF benchmark: collect real-time factor on CI device', { timeout: 600000 }
           benchmarkSettings.useGPU,
           benchmarkSettings.backendHint
         ),
-        activeBackend: observedBackendId !== null ? backendIdToName(observedBackendId) : '',
+        activeBackend,
         gpuModel: _hwGpu() || backendGpuModel,
         requestedBackend: benchmarkSettings.useGPU ? 'gpu' : 'cpu',
         label: benchmarkSettings.label
@@ -580,7 +609,8 @@ test('RTF benchmark: collect real-time factor on CI device', { timeout: 600000 }
         decoderMs: decoderStats,
         memory: memorySummary,
         backendId: observedBackendId,
-        activeBackend: observedBackendId !== null ? backendIdToName(observedBackendId) : ''
+        activeBackend,
+        encoderUsedCoreml: coremlLane.allRunsOnCoreml ? 1 : 0
       },
       runs: allResults
     }
@@ -599,7 +629,7 @@ test('RTF benchmark: collect real-time factor on CI device', { timeout: 600000 }
         benchmarkSettings.useGPU,
         benchmarkSettings.backendHint
       ),
-      activeBackend: observedBackendId !== null ? backendIdToName(observedBackendId) : '',
+      activeBackend,
       deviceLabel: benchmarkSettings.deviceLabel,
       runnerLabel: benchmarkSettings.runnerLabel,
       summary: report.summary

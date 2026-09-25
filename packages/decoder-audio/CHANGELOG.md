@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-09-25
+
+### Added
+
+- Limit decoded PCM output to 64 MiB by default, with a configurable `maxDecodedBytes` limit and options to stream without retaining chunks and wait for consumer capacity.
+- Keep overlapping decode responses and statistics separate, wake paused decoding on cancellation, and support bounded iteration over non-retained PCM chunks.
+
+## [0.7.0] - 2026-09-24
+
+### Changed
+
+- Raised the `@qvac/infer-base` runtime dependency floor to `^0.6.2`.
+
+## [0.6.0]
+
 ### Changed
 
 - Migrated the wrapper and type declarations to TypeScript. Sources now live under `src/`; the published `index.js`, `constants.js`, `utils/*.js` and their `.d.ts` declarations are generated from them and committed. Public API and CommonJS export shape are unchanged.

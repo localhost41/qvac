@@ -15,7 +15,8 @@ const {
   makePcmNoise,
   setupJsLogger,
   getTestPaths,
-  getBackendsDir
+  getBackendsDir,
+  WHISPER_TEST_THREADS
 } = require('./helpers.js')
 
 const platform = detectPlatform()
@@ -321,7 +322,8 @@ test('Runtime stats are populated by default (enableStats)', { timeout: 120000 }
     whisperConfig: {
       language: 'en',
       audio_format: 's16le',
-      temperature: 0.0
+      temperature: 0.0,
+      n_threads: WHISPER_TEST_THREADS
     }
   }
 
@@ -722,4 +724,37 @@ test('Audio format transcription tests (s16le and f32le)', { timeout: 120000 }, 
     }
     t.fail('Audio format tests failed')
   }
+})
+
+test('native main-gpu rejects unsupported JS values before map conversion', (t) => {
+  const native = require('../../binding')
+  for (const key of ['main-gpu', 'main_gpu']) {
+    for (const value of [{}, [], () => {}, null, undefined, true, 1n]) {
+      t.exception(() => {
+        const handle = native.createInstance(
+          {},
+          {
+            contextParams: { [key]: value },
+            whisperConfig: {},
+            miscConfig: {}
+          },
+          () => {}
+        )
+        // Clean up if a regression lets the invalid configuration through.
+        native.destroyInstance(handle)
+      }, /main-gpu/)
+    }
+  }
+  t.exception(() => {
+    const handle = native.createInstance(
+      {},
+      {
+        contextParams: { 'main-gpu': {}, main_gpu: 0 },
+        whisperConfig: {},
+        miscConfig: {}
+      },
+      () => {}
+    )
+    native.destroyInstance(handle)
+  }, /main-gpu/)
 })
